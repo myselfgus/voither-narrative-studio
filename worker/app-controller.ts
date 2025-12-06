@@ -1,7 +1,21 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { SessionInfo } from './types';
 import type { Env } from './core-utils';
-import migrationSQL from './migrations.sql';
+const MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS Patients (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  metadata TEXT
+);
+
+CREATE TABLE IF NOT EXISTS Sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT,
+  createdAt INTEGER,
+  lastActive INTEGER,
+  data TEXT
+);
+`;
 interface Room {
   peers: Set<string>;
   signals: any[];
@@ -38,7 +52,7 @@ export class AppController extends DurableObject<Env> {
         const tableNames = results.map((r: any) => r.name);
         if (!tableNames.includes('Patients') || !tableNames.includes('Sessions')) {
           await this.log('D1 schema missing. Applying migrations...');
-          const statements = migrationSQL.split(';').filter(s => s.trim()).map(s => this.env.VOITHER_D1.prepare(s));
+          const statements = MIGRATION_SQL.split(';').filter((s: string) => s.trim()).map((s: string) => this.env.VOITHER_D1.prepare(s.trim()));
           await this.env.VOITHER_D1.batch(statements);
           await this.log('D1 migration complete.');
         }
@@ -71,6 +85,34 @@ export class AppController extends DurableObject<Env> {
     await this.ensureLoaded();
     return Array.from(this.sessions.values()).sort((a, b) => b.lastActive - a.lastActive);
   }
+
+  async updateSessionActivity(sessionId: string): Promise<void> {
+    await this.ensureLoaded();
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.lastActive = Date.now();
+      this.sessions.set(sessionId, session);
+      await this.ctx.storage.put('sessions', Object.fromEntries(this.sessions));
+      await this.log(`Session ${sessionId} activity updated.`);
+    }
+  }
+
+  async removeSession(sessionId: string): Promise<boolean> {
+    await this.ensureLoaded();
+    if (this.sessions.has(sessionId)) {
+      this.sessions.delete(sessionId);
+      await this.ctx.storage.put('sessions', Object.fromEntries(this.sessions));
+      // attempt to remove related persisted report if present
+      try {
+        await this.ctx.storage.delete(`report_${sessionId}`);
+      } catch {
+        // ignore deletion errors, session already removed from active map
+      }
+      await this.log(`Session ${sessionId} removed.`);
+      return true;
+    }
+    return false;
+  }
   async setReportData(sessionId: string, data: string, patientId?: string): Promise<void> {
     await this.ensureLoaded();
     if (!this.sessions.has(sessionId)) {
@@ -85,7 +127,7 @@ export class AppController extends DurableObject<Env> {
     if (report) return report;
     report = await this.ctx.storage.get<string>(`report_${sessionId}`);
     if (report) this.reports.set(sessionId, report);
-    return report;
+    return report ?? null;
   }
   async fetch(request: Request): Promise<Response> {
     await this.ensureLoaded();
