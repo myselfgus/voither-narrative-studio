@@ -1,4 +1,3 @@
-
 import { enableMapSet } from "immer";
 enableMapSet();
 import { StrictMode } from 'react'
@@ -14,6 +13,7 @@ import { HomePage } from '@/pages/HomePage'
 import ReportBuilder from '@/pages/ReportBuilder';
 import SessionList from '@/pages/SessionList';
 import Exports from '@/pages/Exports';
+import PdfGenerator from '@/pages/PdfGenerator';
 const router = createBrowserRouter([
   {
     path: "/",
@@ -35,6 +35,11 @@ const router = createBrowserRouter([
     element: <Exports />,
     errorElement: <RouteErrorBoundary />,
   },
+  {
+    path: "/pdf-generator",
+    element: <PdfGenerator />,
+    errorElement: <RouteErrorBoundary />,
+  },
 ]);
  // Do not touch this code
 createRoot(document.getElementById('root')!).render(
@@ -44,6 +49,5 @@ createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </StrictMode>,
 )
-
 // Dynamically import errorReporter after initial render to avoid module-initialization side-effects
 void import('@/lib/errorReporter');
