@@ -8,7 +8,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Toaster, toast } from 'sonner';
 import { Bot, FileDown, FileText, Loader2, Save, Eye, Code } from 'lucide-react';
 import UploadJson from '@/components/UploadJson';
-import PdfReportRenderer, { generateReportHtml } from '@/components/PdfReportRenderer';
+import PdfReportRenderer from '@/components/PdfReportRenderer';
+import { generateReportHtml } from '@/lib/reportHtml';
 import ReportEditor from '@/components/ReportEditor';
 import { NarrativeReportData } from '@/types/report';
 import { chatService } from '@/lib/chat';
@@ -38,10 +39,10 @@ const PdfGenerator: React.FC = () => {
     const result = reportSchema.safeParse(jsonData);
     if (result.success) {
       setRawJson(jsonData);
-      setEnrichedReport(result.data as NarrativeReportData);
+      setEnrichedReport(result.data as unknown as NarrativeReportData);
       toast.success("JSON validado e carregado com sucesso.");
     } else {
-      toast.error("Esquema JSON inv��lido.", {
+      toast.error("Esquema JSON inválido.", {
         description: "O JSON não corresponde à estrutura NarrativeReportData necessária.",
       });
       setRawJson(null);
@@ -62,7 +63,7 @@ const PdfGenerator: React.FC = () => {
         const enrichedData = JSON.parse(output);
         const result = reportSchema.safeParse(enrichedData);
         if (result.success) {
-          setEnrichedReport(result.data as NarrativeReportData);
+          setEnrichedReport(result.data as unknown as NarrativeReportData);
           toast.success("Dados enriquecidos com sucesso!");
         } else {
           throw new Error("A saída da IA não corresponde ao esquema.");
