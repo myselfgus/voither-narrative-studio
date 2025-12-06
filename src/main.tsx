@@ -1,4 +1,4 @@
-import '@/lib/errorReporter';
+
 import { enableMapSet } from "immer";
 enableMapSet();
 import { StrictMode } from 'react'
@@ -36,7 +36,7 @@ const router = createBrowserRouter([
     errorElement: <RouteErrorBoundary />,
   },
 ]);
-// Do not touch this code
+ // Do not touch this code
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
@@ -44,3 +44,6 @@ createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </StrictMode>,
 )
+
+// Dynamically import errorReporter after initial render to avoid module-initialization side-effects
+void import('@/lib/errorReporter');
