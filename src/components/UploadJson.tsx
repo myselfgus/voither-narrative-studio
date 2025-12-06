@@ -9,7 +9,7 @@ interface UploadJsonProps {
 }
 const UploadJson: React.FC<UploadJsonProps> = ({ onJsonParsed }) => {
   const [jsonText, setJsonText] = useState('');
-  const handleParse = useCallback((text: string) => {
+  const handleParse = (text: string) => {
     try {
       const parsed = JSON.parse(text);
       onJsonParsed(parsed);
@@ -19,7 +19,7 @@ const UploadJson: React.FC<UploadJsonProps> = ({ onJsonParsed }) => {
         description: 'Por favor, verifique a sintaxe do seu arquivo JSON.',
       });
     }
-  }, [onJsonParsed]);
+  };
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (file) {
@@ -31,7 +31,7 @@ const UploadJson: React.FC<UploadJsonProps> = ({ onJsonParsed }) => {
       };
       reader.readAsText(file);
     }
-  }, [handleParse]);
+  }, []);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { 'application/json': ['.json'] },
