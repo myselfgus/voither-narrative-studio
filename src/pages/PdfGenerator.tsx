@@ -30,7 +30,7 @@ const reportSchema = z.object({
   keyQuote: z.string().min(1, "keyQuote is required"),
   sections: z.array(z.any()).min(1, "sections array must not be empty"),
 });
-const escapeHtml = (str: string) => str.replace(/[&<>"']/g, (match) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[match]!));
+const escapeHtml = (str: string) => str.replace(/[&<>"']/g, (match) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[match]!));
 const PdfGenerator: React.FC = () => {
   const [rawJson, setRawJson] = useState<any | null>(null);
   const [enrichedReport, setEnrichedReport] = useState<NarrativeReportData | null>(null);
@@ -58,6 +58,7 @@ const PdfGenerator: React.FC = () => {
       return;
     }
     setIsProcessing(true);
+    setEnrichedReport(null); // Clear previous report to show skeleton
     toast.info("Enriquecendo dados com IA...", { description: "Isso pode levar um momento." });
     const prompt = getJsonEnrichPrompt(rawJson);
     const { success, output } = await chatService.sendMessage(prompt, 'voither');
@@ -132,13 +133,13 @@ const PdfGenerator: React.FC = () => {
             <p className="text-muted-foreground">Faça o upload, enriqueça com IA e exporte seu relatório.</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button onClick={handleOpenPreview} variant="outline" disabled={!enrichedReport}>
+            <Button onClick={handleOpenPreview} variant="outline" disabled={!enrichedReport} className="min-h-11 px-4">
               <Eye className="w-4 h-4 mr-2" /> Visualizar Impressão
             </Button>
-            <Button onClick={handleSaveSession} variant="outline" disabled={!enrichedReport}>
+            <Button onClick={handleSaveSession} variant="outline" disabled={!enrichedReport} className="min-h-11 px-4">
               <Save className="w-4 h-4 mr-2" /> Salvar Sessão
             </Button>
-            <Button onClick={handleExportPdf} disabled={!enrichedReport}>
+            <Button onClick={handleExportPdf} disabled={!enrichedReport} className="min-h-11 px-4">
               <FileDown className="w-4 h-4 mr-2" /> Exportar PDF
             </Button>
           </div>
@@ -162,7 +163,7 @@ const PdfGenerator: React.FC = () => {
                     <CardDescription>Use a IA para preencher dados ausentes e refinar o conteúdo.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <Button onClick={handleEnrich} disabled={!rawJson || isProcessing} className="w-full">
+                    <Button onClick={handleEnrich} disabled={!rawJson || isProcessing} className="w-full min-h-11">
                       {isProcessing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}
                       {isProcessing ? 'Processando...' : 'Enriquecer com IA'}
                     </Button>
@@ -185,7 +186,13 @@ const PdfGenerator: React.FC = () => {
                 </Button>
               </div>
               <ScrollArea className="h-full bg-surface-muted p-4 md:p-8">
-                {enrichedReport ? (
+                {isProcessing ? (
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                    <Skeleton className="h-48 w-full" />
+                  </div>
+                ) : enrichedReport ? (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                     {showHtml ? (
                       <pre className="text-xs whitespace-pre-wrap p-4 bg-gray-900 text-gray-100 rounded-md">

@@ -19,9 +19,9 @@ const NavLink = ({ href, label, icon: Icon, isMobile = false }: { href: string; 
   const isActive = location.pathname === href || (href !== '/' && location.pathname.startsWith(href));
   return (
     <Button asChild variant="ghost" className={cn(
-      "justify-start relative transition-colors duration-200 hover:text-primary",
+      "justify-start relative transition-colors duration-200 sm:hover:text-primary",
       isActive ? "text-primary font-semibold" : "text-muted-foreground",
-      isMobile && "w-full"
+      isMobile && "w-full min-h-12 text-base"
     )}>
       <Link to={href}>
         <Icon className="mr-2 h-4 w-4" />
@@ -70,15 +70,18 @@ export function Navigation() {
                 </SheetTrigger>
                 <SheetContent side="right" className="w-[240px] p-0">
                   <motion.div
-                    initial={{ x: '100%' }}
-                    animate={{ x: 0 }}
-                    exit={{ x: '100%' }}
-                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    initial="hidden"
+                    animate="visible"
+                    variants={{
+                      visible: { transition: { staggerChildren: 0.05 } }
+                    }}
                     className="flex flex-col gap-2 p-4 pt-10"
                   >
                     {navItems.map(item => (
                       <SheetClose asChild key={item.href}>
-                         <NavLink {...item} isMobile />
+                         <motion.div variants={{ hidden: { opacity: 0, x: 50 }, visible: { opacity: 1, x: 0 } }}>
+                            <NavLink {...item} isMobile />
+                         </motion.div>
                       </SheetClose>
                     ))}
                   </motion.div>

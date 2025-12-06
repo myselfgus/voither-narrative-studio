@@ -14,6 +14,7 @@ import { compileFromStages } from '@/lib/reportRenderer';
 import { generateReportHtml } from '@/lib/reportHtml';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { Skeleton } from '@/components/ui/skeleton';
 const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -40,7 +41,7 @@ const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
       {thumbnailUrl ? (
         <img src={thumbnailUrl} alt={`Preview of ${session.title}`} className="w-full h-full object-cover" />
       ) : (
-        <div className="animate-pulse w-full h-full bg-surface-muted" />
+        <Skeleton className="w-full h-full" />
       )}
     </div>
   );
@@ -139,7 +140,7 @@ const Exports: React.FC = () => {
       </div>
       {sessions.length > 0 ? (
         <motion.div
-          className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          className="grid gap-6 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
           initial="hidden"
           animate="visible"
           variants={{ visible: { transition: { staggerChildren: 0.05 } } }}

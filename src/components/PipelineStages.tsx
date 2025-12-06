@@ -47,12 +47,10 @@ const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patien
     URL.revokeObjectURL(url);
   };
   const getBadgeVariant = (status: PipelineStage['status']) => {
-    switch (status) {
-      case 'complete': return 'default';
-      case 'running': return 'secondary';
-      case 'error': return 'destructive';
-      default: return 'outline';
-    }
+    if (status === 'complete') return 'default';
+    if (status === 'running') return 'secondary';
+    if (status === 'error') return 'destructive';
+    return 'outline';
   };
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -83,6 +81,7 @@ const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patien
       {stages.map((stage) => {
         const details = stageDetails[stage.name];
         const Icon = details.icon;
+        const isLoading = stage.status === 'pending' || stage.status === 'running';
         return (
           <motion.div key={stage.name} variants={itemVariants}>
             <Card>
@@ -104,7 +103,7 @@ const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patien
                 <Progress value={stage.progress} className="w-full mt-4" />
               </CardHeader>
               <CardContent>
-                {stage.status === 'pending' || stage.status === 'running' ? (
+                {isLoading ? (
                   <Skeleton className="h-40 w-full" />
                 ) : (
                   <ScrollArea className="h-40 w-full rounded-md border">

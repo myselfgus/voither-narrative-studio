@@ -10,9 +10,10 @@ import {
   Section,
   SubSection
 } from './report/DocumentComponents';
-const escapeHtml = (str: string | number | null | undefined): string => {
+const escapeHtml = (str: string | string[] | number | null | undefined): string => {
   if (str === null || str === undefined) return '';
-  return String(str)
+  const text = Array.isArray(str) ? str.join(' ') : String(str);
+  return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -89,7 +90,7 @@ export const CoverPage: React.FC<{ data: NarrativeReportData }> = ({ data }) => 
 const BlockRenderer: React.FC<{ block: ContentBlock }> = ({ block }) => {
   switch (block.type) {
     case 'paragraph':
-      return <BodyParagraph>{escapeHtml(Array.isArray(block.content) ? block.content.join(' ') : block.content)}</BodyParagraph>;
+      return <BodyParagraph>{escapeHtml(block.content)}</BodyParagraph>;
     case 'quote':
       return (
         <div className="my-8 pl-6 border-l-4 border-text-primary py-2">

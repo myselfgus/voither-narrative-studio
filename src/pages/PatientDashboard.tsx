@@ -29,7 +29,7 @@ interface Session {
   report: string; // JSON string
 }
 const SessionThumbnail: React.FC<{ reportData: NarrativeReportData }> = ({ reportData }) => {
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [thumbnailUrl, setThumbnailUrl] useState<string | null>(null);
   useEffect(() => {
     let isMounted = true;
     const generate = async () => {
@@ -73,7 +73,7 @@ const PatientDashboard: React.FC = () => {
     if (!sessions.length) return;
     toast.info("Preparing all reports for download...");
     const zip = new JSZip();
-    const { exportToPdf } = await import('@/lib/pdf');
+    const { default: html2pdf } = await import('html2pdf.js');
     for (const session of sessions) {
       try {
         const reportData = JSON.parse(session.report);
