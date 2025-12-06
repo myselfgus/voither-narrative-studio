@@ -1,82 +1,87 @@
 import html2pdf from 'html2pdf.js';
-export const openPrintPreview = (contentElement: HTMLElement | null): void => {
-  if (!contentElement) {
-    console.error("Content element for printing not found.");
-    return;
-  }
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    alert('Please allow pop-ups to view the print preview.');
-    return;
-  }
-  const stylesAndScripts = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
-    .map(el => el.outerHTML)
-    .join('\n');
-  const html = `
+import { toast } from 'sonner';
+import { NarrativeReportData } from '@/types/report';
+import { renderToString } from 'react-dom/server';
+import React from 'react';
+import {
+  CoverPage,
+  Header,
+  Footer,
+  SectionRenderer,
+} from '@/components/ReportPreview';
+// This function generates a self-contained HTML string for the report.
+const generateReportHTML = (data: NarrativeReportData): string => {
+  const coverHTML = renderToString(React.createElement(CoverPage, { data }));
+  const bodyContentHTML = data.sections.map((section, idx) => 
+    renderToString(React.createElement(SectionRenderer, { key: idx, section }))
+  ).join('');
+  const headerHTML = renderToString(React.createElement(Header, { patientId: data.metadata.paciente_id, date: data.metadata.data_analise }));
+  const footerHTML = renderToString(React.createElement(Footer, { doctor: data.metadata.medico_responsavel, crm: data.metadata.crm }));
+  return `
     <!DOCTYPE html>
     <html lang="pt-BR">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Voither HealthOS - Relatório Clínico</title>
-        ${stylesAndScripts}
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script>
-          tailwind.config = {
-            theme: {
-              extend: {
-                fontFamily: {
-                  sans: ['"Nunito Sans"', 'sans-serif'],
-                  mono: ['"Roboto Mono"', 'monospace'],
-                  display: ['"Space Grotesk"', 'sans-serif'],
-                  brand: ['"Josefin Sans"', 'sans-serif'],
-                },
-                colors: {
-                  surface: { DEFAULT: '#ffffff', subtle: '#f8fafc', muted: '#f1f5f9' },
-                  text: { primary: '#0f172a', secondary: '#334155', tertiary: '#94a3b8', quaternary: '#cbd5e1' },
-                  border: { DEFAULT: '#e2e8f0', strong: '#0f172a' }
-                },
-                letterSpacing: { tighter: '-0.05em', tight: '-0.025em', normal: '0em', wide: '0.05em', widest: '0.25em' },
+    <head>
+      <meta charset="UTF-8" />
+      <title>Relatório - ${data.metadata.paciente_id}</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@700&family=Nunito+Sans:ital,opsz,wght@0,6..12,300;0,6..12,400;0,6..12,700;1,6..12,400&family=Roboto+Mono:wght@300;400;500&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+      <script>
+        tailwind.config = {
+          theme: {
+            extend: {
+              fontFamily: {
+                sans: ['"Nunito Sans"', 'sans-serif'],
+                mono: ['"Roboto Mono"', 'monospace'],
+                display: ['"Space Grotesk"', 'sans-serif'],
+                brand: ['"Josefin Sans"', 'sans-serif'],
+              },
+              colors: {
+                surface: { DEFAULT: '#ffffff', subtle: '#f8fafc', muted: '#f1f5f9' },
+                text: { primary: '#0f172a', secondary: '#334155', tertiary: '#94a3b8', quaternary: '#cbd5e1' },
+                border: { DEFAULT: '#e2e8f0', strong: '#0f172a' }
               },
             },
-          }
-        </script>
-        <style>
-          body { background-color: #334155; padding: 40px 0; display: flex; justify-content: center; }
-          #preview-container { background: white; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 210mm; margin: 0 auto; }
-          .header-bar { position: fixed; top: 0; left: 0; width: 100%; background: #0f172a; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); z-index: 50; }
-          @media print {
-            body { background: white; padding: 0; display: block; }
-            #preview-container { box-shadow: none; margin: 0; width: 100%; }
-            .header-bar { display: none !important; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header-bar">
-           <div><span class="font-bold text-lg">Visualização de Impressão</span><span class="text-xs text-gray-400"> Verifique o layout antes de salvar.</span></div>
-           <div class="flex gap-4">
-             <button onclick="window.close()" class="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors">FECHAR</button>
-             <button onclick="window.print()" class="bg-white text-slate-900 px-6 py-2 rounded-full text-sm font-bold hover:bg-gray-100 transition-colors shadow-lg">SALVAR PDF</button>
-           </div>
-        </div>
-        <div style="height: 80px;" class="print:hidden"></div>
-        <div id="preview-container">${contentElement.innerHTML}</div>
-        <div style="height: 40px;" class="print:hidden"></div>
-      </body>
+          },
+        }
+      </script>
+      <style>
+        @media print {
+          @page { size: A4; margin: 0; }
+          .print-break-after-page { break-after: page; }
+          .print-break-inside-avoid { break-inside: avoid; }
+        }
+        body { font-family: 'Nunito Sans', sans-serif; }
+        .page { width: 210mm; min-height: 297mm; background: white; }
+      </style>
+    </head>
+    <body>
+      <div class="page print-break-after-page">${coverHTML}</div>
+      <div class="page p-[20mm] flex flex-col">
+        ${headerHTML}
+        <div class="flex-grow">${bodyContentHTML}</div>
+        ${footerHTML}
+      </div>
+    </body>
     </html>
   `;
-  printWindow.document.write(html);
-  printWindow.document.close();
 };
 export const exportToPdf = (element: HTMLElement, filename: string): void => {
+  if (!element) {
+    toast.error("Elemento do relatório não encontrado para exportação.");
+    return;
+  }
   const options = {
     margin: 0,
     filename: `${filename}.pdf`,
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
+    html2canvas: { scale: 2, useCORS: true, logging: false },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-    pagebreak: { mode: ['css'], before: '.print-break-before-page', after: '.print-break-after-page', avoid: '.print-break-inside-avoid' }
+    pagebreak: { mode: ['css'], after: '.print-break-after-page', avoid: '.print-break-inside-avoid' }
   };
-  html2pdf().from(element).set(options).save();
+  html2pdf().from(element.cloneNode(true)).set(options).save().catch(err => {
+    console.error("PDF export failed:", err);
+    toast.error("Falha ao exportar PDF.");
+  });
 };
