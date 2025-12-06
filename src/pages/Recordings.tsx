@@ -14,249 +14,114 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 type CallState = 'idle' | 'calling' | 'connected' | 'ended';
-interface Patient {
-  id: string;
-  patient_id: string;
-  name: string;
-  crm: string;
+interface Patient { id: string; patient_id: string; name: string; crm: string; }
+interface ActiveCall {
+  patient: Patient;
+  roomId: string;
+  pc: RTCPeerConnection;
+  localStream: MediaStream;
+  screenStream?: MediaStream;
+  recorder: MediaRecorder;
+  chunks: Blob[];
+  startTime: number;
 }
 const Recordings: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [callState, setCallState] = useState<CallState>('idle');
-  const [isCreatingPatient, setIsCreatingPatient] = useState(false);
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [isVideoMuted, setIsVideoMuted] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const screenStreamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const mediaChunksRef = useRef<Blob[]>([]);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const newPatientFormRef = useRef<HTMLFormElement>(null);
-  const roomIdRef = useRef<string | null>(null);
-  const localSessionIdRef = useRef<string>(crypto.randomUUID());
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  useDebounce(() => setDebouncedSearchTerm(searchTerm), 300, [searchTerm]);
-  const loadPatients = useCallback(async () => {
-    const res = await chatService.listPatients();
-    if (res.success && res.data) setPatients(res.data);
-  }, []);
+  const [activeCalls, setActiveCalls] = useState<Map<string, ActiveCall>>(new Map());
+  const localVideoRefs = useRef<Map<string, HTMLVideoElement | null>>(new Map());
+  const remoteVideoRefs = useRef<Map<string, HTMLVideoElement | null>>(new Map());
+  const [_, setTick] = useState(0); // For re-rendering timer
   useEffect(() => {
-    loadPatients();
-  }, [loadPatients]);
-  const filteredPatients = useMemo(() => {
-    if (!debouncedSearchTerm) return patients;
-    return patients.filter(p =>
-      p.patient_id.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-      p.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-      p.crm.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-    );
-  }, [patients, debouncedSearchTerm]);
+    const timer = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const startCall = async () => {
-    if (!selectedPatient) {
-      toast.error("Please select a patient first.");
-      return;
-    }
-    setCallState('calling');
+    if (!selectedPatient) { toast.error("Please select a patient."); return; }
+    if (activeCalls.has(selectedPatient.id)) { toast.info("Call already active for this patient."); return; }
+    if (activeCalls.size >= 3) { toast.error("Maximum of 3 active calls reached."); return; }
     try {
-      const res = await fetch(`/api/webrtc/join?sessionId=${localSessionIdRef.current}`).then(r => r.json());
-      roomIdRef.current = res.roomId;
-      pcRef.current = new RTCPeerConnection({ iceServers: res.iceServers });
-      pcRef.current.onicecandidate = e => {
-        if (e.candidate) {
-          fetch(`/api/webrtc/signal/${roomIdRef.current}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: localSessionIdRef.current, data: { type: 'ice', candidate: e.candidate } })
-          });
+      const res = await fetch(`/api/webrtc/join?sessionId=${crypto.randomUUID()}`).then(r => r.json());
+      const pc = new RTCPeerConnection({ iceServers: res.iceServers });
+      const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const combinedStream = new MediaStream([...localStream.getTracks()]);
+      const recorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = e => e.data.size > 0 && chunks.push(e.data);
+      const newCall: ActiveCall = { patient: selectedPatient, roomId: res.roomId, pc, localStream, recorder, chunks, startTime: Date.now() };
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'disconnected') {
+          toast.warning(`Connection lost for ${selectedPatient.name}. Attempting to reconnect...`);
+          pc.restartIce();
         }
       };
-      pcRef.current.ontrack = e => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = e.streams[0];
-          setCallState('connected');
-        }
-      };
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 48000 }
-      });
-      localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      stream.getTracks().forEach(track => pcRef.current?.addTrack(track, stream));
-      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'video/webm' });
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          mediaChunksRef.current.push(event.data);
-        }
-      };
-      mediaRecorderRef.current.onstop = async () => {
-        const blob = new Blob(mediaChunksRef.current, { type: 'video/webm' });
-        mediaChunksRef.current = [];
-        const formData = new FormData();
-        formData.append('video', blob, 'recording.webm');
-        if (!selectedPatient.id) {
-            toast.error("Patient ID is missing. Cannot upload recording.");
-            return;
-        }
-        toast.info("Uploading recording...");
-        const uploadRes = await fetch(`/api/video/${selectedPatient.id}/upload`, { method: 'PUT', body: formData });
-        if (uploadRes.ok) {
-            const { url } = await uploadRes.json();
-            const sessionRes = await chatService.createSession(`Call Recording for ${selectedPatient.name}`, {
-                report: { recordings: [{ url, type: 'video', timestamp: Date.now() }] }
-            }, selectedPatient.id);
-            if (sessionRes.success && sessionRes.data?.sessionId) {
-                toast.success("Recording uploaded and session created.");
-                console.log('Patient isolation test: Created session with patient_id', selectedPatient.id, 'and triggered transcription with isolation.');
-                await fetch(`/api/transcribe/${sessionRes.data.sessionId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ audioUrl: url, patient_id: selectedPatient.id })
-                });
-            } else {
-                toast.error("Failed to create session for recording.");
-            }
-        } else {
-            toast.error("Failed to upload recording.");
-        }
-      };
-      mediaRecorderRef.current.start();
-      const offer = await pcRef.current.createOffer();
-      await pcRef.current.setLocalDescription(offer);
-      await fetch(`/api/webrtc/signal/${roomIdRef.current}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: localSessionIdRef.current, data: { type: 'offer', sdp: offer.sdp } })
-      });
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      const localVideoEl = localVideoRefs.current.get(selectedPatient.id);
+      if (localVideoEl) localVideoEl.srcObject = localStream;
+      recorder.start();
+      setActiveCalls(prev => new Map(prev).set(selectedPatient.id, newCall));
     } catch (err) {
-      toast.error("Call failed to start.", { description: "Please allow camera/microphone access.", action: { label: "Retry", onClick: startCall } });
-      setCallState('idle');
+      toast.error("Failed to start call. Check permissions.");
     }
   };
-  const hangUp = async () => {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-    pcRef.current?.close();
-    localStreamRef.current?.getTracks().forEach(track => track.stop());
-    screenStreamRef.current?.getTracks().forEach(track => track.stop());
-    if (roomIdRef.current) {
-      await fetch(`/api/webrtc/leave/${roomIdRef.current}?sessionId=${localSessionIdRef.current}`, { method: 'POST' });
-    }
-    setCallState('ended');
-    if (localVideoRef.current) localVideoRef.current.srcObject = null;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-  };
-  const handleCreatePatient = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const formData = new FormData(newPatientFormRef.current!);
-    const data = Object.fromEntries(formData.entries()) as { patient_id: string; name: string; context: string; crm: string };
-    if (!data.name || !data.crm) {
-      toast.error("Name and CRM are required.");
-      return;
-    }
-    if (!data.patient_id) data.patient_id = `PATIENT-${crypto.randomUUID().slice(0, 8)}`;
-    setIsCreatingPatient(true);
-    const res = await chatService.createPatient(data);
-    if (res.success && res.data?.id) {
-      toast.success('Patient created successfully!');
-      await loadPatients();
-      const newPatient = { ...data, id: res.data.id };
-      setSelectedPatient(newPatient);
-      console.log('Patient isolation: Upserted to D1 with patient_id', res.data.id);
-      newPatientFormRef.current?.reset();
-      document.getElementById('close-patient-dialog')?.click();
+  const hangUp = async (patientId: string) => {
+    const call = activeCalls.get(patientId);
+    if (!call) return;
+    call.recorder.stop();
+    call.pc.close();
+    call.localStream.getTracks().forEach(track => track.stop());
+    call.screenStream?.getTracks().forEach(track => track.stop());
+    const blob = new Blob(call.chunks, { type: 'video/webm' });
+    const formData = new FormData();
+    formData.append('video', blob, 'recording.webm');
+    toast.info(`Uploading recording for ${call.patient.name}...`);
+    const uploadRes = await fetch(`/api/video/${call.patient.id}/upload`, { method: 'PUT', body: formData });
+    if (uploadRes.ok) {
+      const { url } = await uploadRes.json();
+      await chatService.createSession(`Call Recording for ${call.patient.name}`, { report: { recordings: [{ url, type: 'video', timestamp: Date.now() }] } }, call.patient.id);
+      toast.success("Recording saved.");
+      console.log('Patient isolation test: Video wall recording for patient_id', call.patient.id);
     } else {
-      toast.error("Failed to create patient.", { description: res.error });
+      toast.error("Failed to upload recording.");
     }
-    setIsCreatingPatient(false);
+    setActiveCalls(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(patientId);
+      return newMap;
+    });
   };
   return (
     <AppLayout>
-      <h1 className="font-display font-bold text-4xl text-text-primary mb-2">Record Media</h1>
-      <p className="text-muted-foreground mb-8">Start a video call and record the session for analysis.</p>
+      <h1 className="font-display font-bold text-4xl text-text-primary mb-2">Video Wall & Recordings</h1>
+      <p className="text-muted-foreground mb-8">Manage active calls and review past recordings.</p>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>1. Select Patient</CardTitle>
-              <div className="flex justify-between items-center">
-                <CardDescription>Choose an existing patient.</CardDescription>
-                <Dialog>
-                  <DialogTrigger asChild><Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-2" /> New</Button></DialogTrigger>
-                  <DialogContent aria-describedby="dialog-desc">
-                    <DialogHeader><DialogTitle>Create New Patient</DialogTitle></DialogHeader>
-                    <p id="dialog-desc" className="sr-only">Create a new patient record for media recordings and analysis.</p>
-                    <form ref={newPatientFormRef} onSubmit={handleCreatePatient} className="space-y-4">
-                      <Input name="patient_id" placeholder="Patient ID (optional, auto-generated)" />
-                      <Input name="name" placeholder="Full Name" required />
-                      <Input name="context" placeholder="Context (e.g., Initial Consultation)" />
-                      <Input name="crm" placeholder="Professional's CRM" required />
-                      <DialogFooter>
-                        <DialogClose asChild><Button id="close-patient-dialog" type="button" variant="ghost">Cancel</Button></DialogClose>
-                        <Button type="submit" disabled={isCreatingPatient}>{isCreatingPatient && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Create Patient</Button>
-                      </DialogFooter>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            </CardHeader>
+        <div className="lg:col-span-1">
+          <Card className="glass rounded-macos">
+            <CardHeader><CardTitle>Start a Call</CardTitle></CardHeader>
             <CardContent>
-              <div className="relative mb-2">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search patients..." className="pl-8" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-              </div>
-              <ScrollArea className="h-64 border rounded-md">
-                <Table>
-                  <TableHeader><TableRow><TableHead>Patient</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {filteredPatients.map(p => (
-                      <TableRow key={p.id} onClick={() => setSelectedPatient(p)} className={`cursor-pointer ${selectedPatient?.id === p.id ? 'bg-accent' : ''}`}>
-                        <TableCell><div className="font-medium">{p.name}</div><div className="text-sm text-muted-foreground">{p.patient_id}</div></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+              <Select onValueChange={val => setPatients(p => { setSelectedPatient(p.find(i => i.id === val) || null); return p; })}>
+                <SelectTrigger><SelectValue placeholder="Select a patient..." /></SelectTrigger>
+                <SelectContent>{patients.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+              </Select>
+              <Button onClick={startCall} disabled={!selectedPatient} className="w-full mt-4"><Video className="w-4 h-4 mr-2" /> Start Call</Button>
             </CardContent>
           </Card>
         </div>
         <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>2. Video Call</CardTitle>
-              <CardDescription>
-                {callState === 'idle' && "Start a video call with the selected patient."}
-                {callState === 'calling' && <Badge variant="secondary">Calling...</Badge>}
-                {callState === 'connected' && <Badge>Connected</Badge>}
-                {callState === 'ended' && <Badge variant="outline">Call Ended</Badge>}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
-                <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
-                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Local</CardTitle></CardHeader><CardContent className="p-0">{callState === 'idle' ? <Skeleton className="w-full aspect-video rounded-b-md" /> : <video ref={localVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay muted playsInline aria-label="Local video feed" />}</CardContent></Card>
-                </motion.div>
-                <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
-                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Remote</CardTitle></CardHeader><CardContent className="p-0">{callState === 'idle' ? <Skeleton className="w-full aspect-video rounded-b-md" /> : <video ref={remoteVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay playsInline aria-label="Remote video feed" />}</CardContent></Card>
-                </motion.div>
-              </motion.div>
-              <div className="flex flex-wrap justify-center gap-2 p-2 border rounded-lg bg-surface-subtle">
-                {callState === 'idle' && <Button onClick={startCall} disabled={!selectedPatient} className="flex-1"><Video className="w-4 h-4 mr-2" /> Start Video Call</Button>}
-                {(callState === 'calling' || callState === 'connected') && (
-                  <>
-                    <Button variant={isAudioMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !isAudioMuted); setIsAudioMuted(!isAudioMuted); }}><MicOff className={!isAudioMuted ? 'hidden' : ''} /><Mic className={isAudioMuted ? 'hidden' : ''} /></Button>
-                    <Button variant={isVideoMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = !isVideoMuted); setIsVideoMuted(!isVideoMuted); }}><VideoOff className={!isVideoMuted ? 'hidden' : ''} /><Video className={isVideoMuted ? 'hidden' : ''} /></Button>
-                    <Button variant="outline" size="icon" disabled><ScreenShare /></Button>
-                    <Button onClick={hangUp} variant="destructive" className="flex-1"><PhoneOff className="w-4 h-4 mr-2" /> Hang Up</Button>
-                  </>
-                )}
-              </div>
+          <Card className="glass rounded-macos">
+            <CardHeader><CardTitle>Active Calls ({activeCalls.size})</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Array.from(activeCalls.values()).map(call => (
+                <div key={call.patient.id}>
+                  <h3 className="font-bold mb-2">{call.patient.name}</h3>
+                  <video ref={el => localVideoRefs.current.set(call.patient.id, el)} className="w-full aspect-video bg-black rounded-md" autoPlay muted playsInline />
+                  <div className="flex justify-between items-center mt-2 glass rounded-full p-1">
+                    <Badge>{new Date((Date.now() - call.startTime)).toISOString().substr(14, 5)}</Badge>
+                    <Button onClick={() => hangUp(call.patient.id)} variant="destructive" size="sm"><PhoneOff className="w-4 h-4 mr-2" /> Hang Up</Button>
+                  </div>
+                </div>
+              ))}
+              {activeCalls.size === 0 && <p className="text-muted-foreground col-span-full text-center py-8">No active calls.</p>}
             </CardContent>
           </Card>
         </div>

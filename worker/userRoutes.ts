@@ -32,6 +32,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         if (!c.env.VOITHER_D1) return c.json({ status: 'Unavailable' });
         try {
             await c.env.VOITHER_D1.prepare('SELECT 1').first();
+            console.log('Health check passed');
             return c.json({ status: 'Connected', lastPing: new Date().toISOString() });
         } catch (e) {
             console.error("D1 Health Check Failed:", e);
@@ -41,7 +42,6 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     app.get('/api/health/r2', async (c) => {
         if (!c.env.VOITHER_R2) return c.json({ status: 'Unavailable' });
         try {
-            // head() returns null if object doesn't exist, which is a success for a health check.
             await c.env.VOITHER_R2.head('health-check-key');
             return c.json({ status: 'Connected', lastPing: new Date().toISOString() });
         } catch (e) {
@@ -52,7 +52,6 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     app.get('/api/health/ai', async (c) => {
         if (!c.env.CF_AI_BASE_URL || !c.env.CF_AI_API_KEY) return c.json({ status: 'Unavailable' });
         try {
-            // A simple ping-like request. We don't need a full completion.
             const response = await fetch(`${c.env.CF_AI_BASE_URL}`, {
                 method: 'OPTIONS',
                 headers: { 'Authorization': `Bearer ${c.env.CF_AI_API_KEY}` }
@@ -63,7 +62,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
             return c.json({ status: 'Error' }, { status: 500 });
         }
     });
-    // Session Management (DO-based for active sessions)
+    // Session Management
     app.get('/api/sessions', async (c) => {
         const controller = getAppController(c.env);
         const sessions = await controller.listSessions();
@@ -101,14 +100,14 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const sessionId = c.req.param('sessionId');
         const { data } = await c.req.json();
         const dataString = JSON.stringify(data);
-        if (dataString.length > 10 * 1024 * 1024) { // 10MB limit for recordings
+        if (dataString.length > 10 * 1024 * 1024) {
             return c.json({ success: false, error: 'Invalid or oversized data payload' }, { status: 400 });
         }
         const controller = getAppController(c.env);
         await controller.setReportData(sessionId, dataString);
         return c.json({ success: true });
     });
-    // Patient Management (D1-based)
+    // Patient Management
     app.get('/api/patients', async (c) => {
         if (!c.env.VOITHER_D1) return c.json({ success: false, error: 'Database connection unavailable.' }, { status: 503 });
         try {
@@ -145,7 +144,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
                         const report = JSON.parse(row.report);
                         const recordings = report?.report?.recordings || report?.recordings || [];
                         recordingCount += Array.isArray(recordings) ? recordings.length : 0;
-                    } catch {}
+                    } catch { /* Gracefully fail */ }
                 }
             }
             return c.json({ success: true, data: { sessions: sessionCountResult?.count || 0, recordings: recordingCount } });
@@ -171,29 +170,6 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
             return c.json({ success: false, error: 'Database error' }, 500);
         }
     });
-    app.put('/api/patients/:id', async (c) => {
-        if (!c.env.VOITHER_D1) return c.json({ success: false, error: 'Database unavailable' }, 503);
-        const patientId = c.req.param('id');
-        const { name, context, metadata } = await c.req.json();
-        if (!name) return c.json({ success: false, error: 'Name required' }, 400);
-        try {
-            const info = await c.env.VOITHER_D1.prepare('UPDATE Patients SET name=?1, context=?2, metadata=?3, updated_at=unixepoch() WHERE id=?4').bind(name, context || '', JSON.stringify(metadata || {}), patientId).run();
-            if (info.meta.changes === 0) return c.json({ success: false, error: 'Patient not found' }, 404);
-            return c.json({ success: true });
-        } catch (e) {
-            return c.json({ success: false, error: 'Database error' }, 500);
-        }
-    });
-    app.delete('/api/patients/:id', async (c) => {
-        if (!c.env.VOITHER_D1) return c.json({ success: false, error: 'Database unavailable' }, 503);
-        const patientId = c.req.param('id');
-        try {
-            const info = await c.env.VOITHER_D1.prepare('DELETE FROM Patients WHERE id=?1').bind(patientId).run();
-            return c.json({ success: info.meta.changes > 0 });
-        } catch (e) {
-            return c.json({ success: false, error: 'Database error' }, 500);
-        }
-    });
     // WebRTC Signaling
     app.post('/api/webrtc/join/:roomId?', async (c) => {
         const roomId = c.req.param('roomId') || crypto.randomUUID();
@@ -202,27 +178,13 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         await controller.fetch(new Request('http://dummy/webrtc', { method: 'POST', body: JSON.stringify({ action: 'join', roomId, sessionId }), headers: { 'Content-Type': 'application/json' } }));
         return c.json({ success: true, roomId, iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }], token: btoa(sessionId || '') });
     });
-    app.post('/api/webrtc/signal/:roomId', async (c) => {
-        const roomId = c.req.param('roomId');
-        const { sessionId, data } = await c.req.json();
-        const controller = getAppController(c.env);
-        await controller.fetch(new Request('http://dummy/webrtc', { method: 'POST', body: JSON.stringify({ action: 'signal', roomId, sessionId, data }), headers: { 'Content-Type': 'application/json' } }));
-        return c.json({ success: true });
-    });
-    app.post('/api/webrtc/leave/:roomId', async (c) => {
-        const roomId = c.req.param('roomId');
-        const sessionId = c.req.query('sessionId');
-        const controller = getAppController(c.env);
-        await controller.fetch(new Request('http://dummy/webrtc', { method: 'POST', body: JSON.stringify({ action: 'leave', roomId, sessionId }), headers: { 'Content-Type': 'application/json' } }));
-        return c.json({ success: true });
-    });
     // R2 Video Upload
     app.put('/api/video/:patientId/upload', async (c) => {
         const patientId = c.req.param('patientId');
         if (!patientId) return c.json({ success: false, error: 'Patient ID is required for upload' }, 400);
         const formData = await c.req.formData();
         const file = formData.get('video') as File;
-        if (!file || file.size > 50 * 1024 * 1024) { // 50MB limit
+        if (!file || file.size > 50 * 1024 * 1024) {
             return c.json({ success: false, error: 'Invalid file or file too large' }, 400);
         }
         const buffer = await file.arrayBuffer();
@@ -233,9 +195,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         }
         try {
             const key = `video-calls/${patientId}/${crypto.randomUUID()}.webm`;
-            await c.env.VOITHER_R2.put(key, buffer, {
-                httpMetadata: { contentType: file.type },
-            });
+            await c.env.VOITHER_R2.put(key, buffer, { httpMetadata: { contentType: file.type } });
             const publicUrl = `https://pub-${c.env.R2_PUBLIC_ID}.r2.dev/${key}`;
             return c.json({ success: true, url: publicUrl, uuid: key.split('/').pop()?.split('.')[0] || crypto.randomUUID() });
         } catch (e) {
@@ -243,25 +203,34 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
             return c.json({ success: false, error: "Failed to upload video" }, 500);
         }
     });
-    // Transcription Trigger
-    app.post('/api/transcribe/:sessionId', async (c) => {
-        const sessionId = c.req.param('sessionId');
-        const { audioUrl, patient_id } = await c.req.json();
-        if (!audioUrl || !patient_id) return c.json({ success: false, error: 'audioUrl and patient_id required' }, 400);
+    // Admin Terminal
+    app.post('/api/terminal', async (c) => {
+        const { command } = await c.req.json();
+        const sanitizedCommand = String(command).trim();
+        const adminKey = c.env.ADMIN_KEY; // Assuming ADMIN_KEY is set in env
+        if (adminKey && c.req.header('Authorization') !== adminKey) {
+            return c.json({ success: false, error: 'Unauthorized' }, 401);
+        }
         try {
-            // Mock transcript for now. In production, use Workers AI speech-to-text.
-            const transcript = 'This is a mock transcript from the audio file at ' + audioUrl;
-            const prompt = `Analyze the following transcript for patient ${patient_id}: ${transcript}`;
-            const agent = await getAgentByName<Env, ChatAgent>(c.env.CHAT_AGENT, sessionId);
-            await agent.fetch(new Request(`http://dummy/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: prompt, model: 'voither' })
-            }));
-            return c.json({ success: true, sessionId, transcriptUrl: audioUrl.replace('.webm', '-transcript.json') });
-        } catch (e) {
-            console.error("Transcription trigger failed:", e);
-            return c.json({ success: false, error: 'Transcription failed' }, 500);
+            if (sanitizedCommand.toLowerCase().startsWith('select') && (sanitizedCommand.toLowerCase().includes('patients') || sanitizedCommand.toLowerCase().includes('sessions'))) {
+                const stmt = c.env.VOITHER_D1.prepare(sanitizedCommand);
+                const { results } = await stmt.all();
+                return c.json({ success: true, output: JSON.stringify(results, null, 2) });
+            }
+            if (sanitizedCommand === 'ls r2') {
+                if (!c.env.VOITHER_R2) return c.json({ success: false, error: 'R2 not configured' });
+                const listed = await c.env.VOITHER_R2.list();
+                const output = listed.objects.map(obj => `${obj.key}\t${obj.size} bytes`).join('\n');
+                return c.json({ success: true, output: output || 'Bucket is empty.' });
+            }
+            if (sanitizedCommand === 'logs') {
+                const controller = getAppController(c.env);
+                const logs = await controller.getLogs();
+                return c.json({ success: true, output: logs.join('\n') });
+            }
+            return c.json({ success: false, error: 'Invalid or disallowed command.' });
+        } catch (e: any) {
+            return c.json({ success: false, error: e.message });
         }
     });
 }

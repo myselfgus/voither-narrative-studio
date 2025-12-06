@@ -18,6 +18,7 @@ import Patients from '@/pages/Patients';
 import PatientDashboard from '@/pages/PatientDashboard';
 import Recordings from '@/pages/Recordings';
 import AdminDashboard from '@/pages/AdminDashboard';
+import Terminal from '@/pages/Terminal';
 const router = createBrowserRouter([
   {
     path: "/",
@@ -62,6 +63,11 @@ const router = createBrowserRouter([
   {
     path: "/admin",
     element: <AdminDashboard />,
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/terminal",
+    element: <Terminal />,
     errorElement: <RouteErrorBoundary />,
   },
 ]);
