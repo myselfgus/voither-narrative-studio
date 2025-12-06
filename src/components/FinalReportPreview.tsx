@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { NarrativeReportData } from '@/types/report';
 import ReportPreview from '@/components/ReportPreview';
@@ -17,6 +17,21 @@ const FinalReportPreview: React.FC<FinalReportPreviewProps> = ({ data, reportRef
     const clampedZoom = Math.max(0.4, Math.min(1.2, newZoom));
     setZoom(clampedZoom);
   };
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowUp' || e.key === '=') {
+        e.preventDefault();
+        handleZoom(zoom + 0.1);
+      } else if (e.key === 'ArrowDown' || e.key === '-') {
+        e.preventDefault();
+        handleZoom(zoom - 0.1);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [zoom]);
   if (!data) {
     return (
       <Card className="h-full">
@@ -37,16 +52,13 @@ const FinalReportPreview: React.FC<FinalReportPreviewProps> = ({ data, reportRef
       transition={{ duration: 0.5 }}
       className="h-full flex flex-col"
     >
+      <style>
+        {`@media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }`}
+      </style>
       <div className="flex-shrink-0 p-2 border-b bg-surface rounded-t-lg flex items-center justify-end gap-2">
-        <Button variant="outline" size="icon" onClick={() => handleZoom(zoom - 0.1)}>
-          <ZoomOut className="w-4 h-4" />
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setZoom(0.8)}>
-          <Expand className="w-4 h-4 mr-2" /> Reset Zoom
-        </Button>
-        <Button variant="outline" size="icon" onClick={() => handleZoom(zoom + 0.1)}>
-          <ZoomIn className="w-4 h-4" />
-        </Button>
+        <Button variant="outline" size="icon" onClick={() => handleZoom(zoom - 0.1)}><ZoomOut className="w-4 h-4" /></Button>
+        <Button variant="outline" size="sm" onClick={() => setZoom(0.8)}><Expand className="w-4 h-4 mr-2" /> Reset Zoom</Button>
+        <Button variant="outline" size="icon" onClick={() => handleZoom(zoom + 0.1)}><ZoomIn className="w-4 h-4" /></Button>
       </div>
       <ScrollArea className="flex-grow bg-surface-muted p-4 md:p-8 overflow-x-auto sm:overflow-visible">
         <div
@@ -63,4 +75,4 @@ const FinalReportPreview: React.FC<FinalReportPreviewProps> = ({ data, reportRef
     </motion.div>
   );
 };
-export default FinalReportPreview;
+export default React.memo(FinalReportPreview, (prev, next) => JSON.stringify(prev.data) === JSON.stringify(next.data));
