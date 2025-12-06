@@ -207,7 +207,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     app.post('/api/terminal', async (c) => {
         const { command } = await c.req.json();
         const sanitizedCommand = String(command).trim();
-        const adminKey = c.env.ADMIN_KEY; // Assuming ADMIN_KEY is set in env
+        const adminKey = (c.env as any).ADMIN_KEY; // Assuming ADMIN_KEY is set in env
         if (adminKey && c.req.header('Authorization') !== adminKey) {
             return c.json({ success: false, error: 'Unauthorized' }, 401);
         }

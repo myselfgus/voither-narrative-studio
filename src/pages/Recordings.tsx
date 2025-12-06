@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { Mic, UserPlus, Loader2, Video, VideoOff, Search, PhoneOff, ScreenShare, ScreenShareOff, MicOff } from 'lucide-react';
 import { motion } from 'framer-motion';
