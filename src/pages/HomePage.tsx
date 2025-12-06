@@ -24,7 +24,7 @@ export function HomePage() {
     <AppLayout footer={footer}>
       <div className="text-center">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <h1 className="font-display font-bold text-5xl md:text-6xl lg:text-7xl bg-gradient-to-r from-text-primary to-text-secondary text-transparent bg-clip-text leading-tight tracking-tighter">
+          <h1 className="font-display font-bold text-4xl sm:text-5xl md:text-6xl lg:text-7xl bg-gradient-to-r from-text-primary to-text-secondary text-transparent bg-clip-text leading-tight tracking-tighter">
             Transcription Analysis Pipeline
           </h1>
           <p className="mt-6 max-w-3xl mx-auto text-lg text-text-secondary">
@@ -53,7 +53,7 @@ export function HomePage() {
           whileInView="visible"
           viewport={{ once: true, amount: 0.2 }}
           variants={{
-            visible: { transition: { staggerChildren: 0.1 } }
+            visible: { transition: { staggerChildren: 0.15 } }
           }}
         >
           {pipelineStages.map((stage) => (

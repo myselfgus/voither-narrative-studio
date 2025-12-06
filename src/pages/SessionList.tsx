@@ -19,16 +19,20 @@ import { chatService } from '@/lib/chat';
 import type { SessionInfo } from '../../worker/types';
 import { format } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { Skeleton } from '@/components/ui/skeleton';
 const SessionList: React.FC = () => {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [loading, setLoading] = useState(true);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   const loadSessions = useCallback(async () => {
+    setLoading(true);
     const response = await chatService.listSessions();
     if (response.success && response.data) {
       setSessions(response.data);
     } else {
       toast.error("Failed to load sessions.");
     }
+    setLoading(false);
   }, []);
   useEffect(() => {
     loadSessions();
@@ -52,8 +56,23 @@ const SessionList: React.FC = () => {
           <Link to="/builder"><PlusCircle className="w-4 h-4 mr-2" />New Session</Link>
         </Button>
       </div>
-      {sessions.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {loading ? (
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-6 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+              </CardHeader>
+              <CardContent className="flex justify-between items-center">
+                <Skeleton className="h-10 w-20" />
+                <Skeleton className="h-10 w-10 rounded-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : sessions.length > 0 ? (
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {sessions.map(session => (
             <Card key={session.id}>
               <CardHeader>
@@ -68,7 +87,7 @@ const SessionList: React.FC = () => {
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={() => setSessionToDelete(session.id)}>
+                    <Button variant="ghost" size="icon" onClick={() => setSessionToDelete(session.id)} aria-label={`Delete session ${session.title}`}>
                       <Trash2 className="w-4 h-4 text-destructive" />
                     </Button>
                   </AlertDialogTrigger>

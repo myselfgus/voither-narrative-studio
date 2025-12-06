@@ -203,7 +203,7 @@ const ReportBuilder: React.FC = () => {
             )}
           </div>
         </div>
-        <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh]">
+        <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh] flex-col md:flex-row">
           <ResizablePanel defaultSize={40} minSize={30}>
             <ScrollArea className="h-full">
               <div className="p-4">

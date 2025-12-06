@@ -11,6 +11,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { User, Users, Search, PlusCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useDebounce } from 'react-use';
+import { Skeleton } from '@/components/ui/skeleton';
 interface Patient {
   id: string;
   patient_id: string;
@@ -24,6 +26,10 @@ const Patients: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  useDebounce(() => {
+    setDebouncedSearchTerm(searchTerm);
+  }, 300, [searchTerm]);
   useEffect(() => {
     const fetchPatients = async () => {
       setLoading(true);
@@ -38,13 +44,13 @@ const Patients: React.FC = () => {
     fetchPatients();
   }, []);
   const filteredPatients = useMemo(() => {
-    if (!searchTerm) return patients;
+    if (!debouncedSearchTerm) return patients;
     return patients.filter(p =>
-      p.patient_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.crm.toLowerCase().includes(searchTerm.toLowerCase())
+      p.patient_id.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+      p.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+      p.crm.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
     );
-  }, [patients, searchTerm]);
+  }, [patients, debouncedSearchTerm]);
   return (
     <AppLayout>
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
@@ -79,50 +85,57 @@ const Patients: React.FC = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Patient ID</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>CRM</TableHead>
-                  <TableHead className="text-center">Sessions</TableHead>
-                  <TableHead>Last Updated</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell colSpan={6} className="h-16 animate-pulse bg-muted/50"></TableCell>
-                    </TableRow>
-                  ))
-                ) : filteredPatients.length > 0 ? (
-                  filteredPatients.map(patient => (
-                    <TableRow key={patient.id}>
-                      <TableCell className="font-mono">{patient.patient_id}</TableCell>
-                      <TableCell className="font-medium">{patient.name}</TableCell>
-                      <TableCell>{patient.crm}</TableCell>
-                      <TableCell className="text-center">{patient.session_count}</TableCell>
-                      <TableCell>{formatDistanceToNow(new Date(patient.updated_at * 1000), { addSuffix: true, locale: ptBR })}</TableCell>
-                      <TableCell className="text-right">
-                        <Button asChild variant="outline" size="sm">
-                          <Link to={`/patients/${patient.id}`}>
-                            <User className="w-4 h-4 mr-2" /> View Dashboard
-                          </Link>
-                        </Button>
+            <div className="w-full overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Patient ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>CRM</TableHead>
+                    <TableHead className="text-center">Sessions</TableHead>
+                    <TableHead>Last Updated</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                        <TableCell className="text-center"><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-28" /></TableCell>
+                        <TableCell className="text-right"><Skeleton className="h-8 w-32 ml-auto" /></TableCell>
+                      </TableRow>
+                    ))
+                  ) : filteredPatients.length > 0 ? (
+                    filteredPatients.map(patient => (
+                      <TableRow key={patient.id}>
+                        <TableCell className="font-mono">{patient.patient_id}</TableCell>
+                        <TableCell className="font-medium">{patient.name}</TableCell>
+                        <TableCell>{patient.crm}</TableCell>
+                        <TableCell className="text-center">{patient.session_count}</TableCell>
+                        <TableCell>{formatDistanceToNow(new Date(patient.updated_at * 1000), { addSuffix: true, locale: ptBR })}</TableCell>
+                        <TableCell className="text-right">
+                          <Button asChild variant="outline" size="sm">
+                            <Link to={`/patients/${patient.id}`}>
+                              <User className="w-4 h-4 mr-2" /> View Dashboard
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-24 text-center">
+                        No patients found.
                       </TableCell>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
-                      No patients found.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </motion.div>
