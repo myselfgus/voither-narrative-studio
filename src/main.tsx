@@ -16,6 +16,7 @@ import Exports from '@/pages/Exports';
 import PdfGenerator from '@/pages/PdfGenerator';
 import Patients from '@/pages/Patients';
 import PatientDashboard from '@/pages/PatientDashboard';
+import Recordings from '@/pages/Recordings';
 const router = createBrowserRouter([
   {
     path: "/",
@@ -50,6 +51,11 @@ const router = createBrowserRouter([
   {
     path: "/patients/:patientId",
     element: <PatientDashboard />,
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/recordings",
+    element: <Recordings />,
     errorElement: <RouteErrorBoundary />,
   },
 ]);

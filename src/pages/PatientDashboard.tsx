@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { chatService } from '@/lib/chat';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { User, ArrowLeft, Download, Edit, Archive } from 'lucide-react';
+import { User, ArrowLeft, Edit, Archive } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { NarrativeReportData } from '@/types/report';
 import { generateCoverThumbnail } from '@/lib/pdf';
@@ -28,9 +28,10 @@ interface Session {
   last_active: number;
   report: string; // JSON string
 }
-const SessionThumbnail: React.FC<{ reportData: NarrativeReportData }> = ({ reportData }) => {
-  const [thumbnailUrl, setThumbnailUrl] useState<string | null>(null);
+const SessionThumbnail: React.FC<{ reportData: NarrativeReportData | null }> = ({ reportData }) => {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   useEffect(() => {
+    if (!reportData) return;
     let isMounted = true;
     const generate = async () => {
       const url = await generateCoverThumbnail(reportData);
@@ -42,7 +43,7 @@ const SessionThumbnail: React.FC<{ reportData: NarrativeReportData }> = ({ repor
   return (
     <div className="aspect-[3/4] bg-surface-subtle rounded-md flex items-center justify-center overflow-hidden">
       {thumbnailUrl ? (
-        <img src={thumbnailUrl} alt={`Preview of ${reportData.reportTitle}`} className="w-full h-full object-cover" />
+        <img src={thumbnailUrl} alt={`Preview of ${reportData?.reportTitle}`} className="w-full h-full object-cover" />
       ) : (
         <div className="animate-pulse w-full h-full bg-surface-muted" />
       )}
@@ -76,16 +77,21 @@ const PatientDashboard: React.FC = () => {
     const { default: html2pdf } = await import('html2pdf.js');
     for (const session of sessions) {
       try {
-        const reportData = JSON.parse(session.report);
-        const htmlString = generateReportHtml(reportData.report);
+        const reportContainer = JSON.parse(session.report);
+        const reportData = reportContainer.report;
+        if (!reportData) {
+            throw new Error("Report data is missing in session object.");
+        }
+        const htmlString = generateReportHtml(reportData);
         const pdfBlob = await html2pdf().from(htmlString).set({
           margin: 0,
-          filename: `voither-report-${reportData.report.metadata.paciente_id}-${session.session_id}.pdf`,
+          filename: `voither-report-${reportData.metadata.paciente_id}-${session.session_id}.pdf`,
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         }).output('blob');
         zip.file(`session_${session.session_id}.pdf`, pdfBlob);
       } catch (error) {
         console.error(`Failed to process session ${session.session_id} for zip export.`, error);
+        toast.error(`Invalid report data for session: ${session.session_id}`);
       }
     }
     zip.generateAsync({ type: 'blob' }).then(content => {
@@ -126,18 +132,23 @@ const PatientDashboard: React.FC = () => {
             variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
           >
             {sessions.map(session => {
-              const reportData = JSON.parse(session.report)?.report as NarrativeReportData;
+              let reportData: NarrativeReportData | null = null;
+              try {
+                reportData = JSON.parse(session.report)?.report as NarrativeReportData;
+              } catch (e) {
+                console.error("Could not parse report for session", session.session_id);
+              }
               return (
                 <motion.div key={session.session_id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
                   <Card className="h-full flex flex-col">
                     <CardHeader>
                       <CardTitle className="truncate">{session.title}</CardTitle>
                       <CardDescription>
-                        {format(new Date(session.last_active), "dd/MM/yyyy 'at' HH:mm", { locale: ptBR })}
+                        {format(new Date(session.last_active * 1000), "dd/MM/yyyy 'at' HH:mm", { locale: ptBR })}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex-grow">
-                      {reportData ? <SessionThumbnail reportData={reportData} /> : <div className="aspect-[3/4] bg-surface-muted rounded-md" />}
+                      <SessionThumbnail reportData={reportData} />
                     </CardContent>
                     <CardFooter className="flex justify-between items-center">
                       <Button asChild variant="outline" size="sm">

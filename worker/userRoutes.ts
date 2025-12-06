@@ -60,7 +60,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const sessionId = c.req.param('sessionId');
         const { data } = await c.req.json();
         const dataString = JSON.stringify(data);
-        if (dataString.length > 1024 * 1024) { // 1MB limit
+        if (dataString.length > 2 * 1024 * 1024) { // 2MB limit for recordings
             return c.json({ success: false, error: 'Invalid or oversized data payload' }, { status: 400 });
         }
         const controller = getAppController(c.env);
