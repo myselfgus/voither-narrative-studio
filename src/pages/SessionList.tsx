@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Toaster, toast } from 'sonner';
 import { chatService } from '@/lib/chat';
-import type { SessionInfo } from '../../../worker/types';
+import type { SessionInfo } from '../../worker/types';
 import { format } from 'date-fns';
 const SessionList: React.FC = () => {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
