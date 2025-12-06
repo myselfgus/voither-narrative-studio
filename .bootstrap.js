@@ -84,7 +84,8 @@ function runSetupCommands() {
     "bun add diff-match-patch",
     "bun add jszip",
     "bun install file-saver",
-    "bun add file-saver"
+    "bun add file-saver",
+    "bun add -d @types/file-saver"
 ];
     
     if (commands.length === 0) {
