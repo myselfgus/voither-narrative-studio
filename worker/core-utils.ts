@@ -4,7 +4,7 @@
  */
 import type { AppController } from './app-controller';
 import type { ChatAgent } from './agent';
-import type { D1Database } from '@cloudflare/workers-types';
+import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 export interface Env {
     CF_AI_BASE_URL: string;
     CF_AI_API_KEY: string;
@@ -13,6 +13,8 @@ export interface Env {
     CHAT_AGENT: DurableObjectNamespace<ChatAgent>;
     APP_CONTROLLER: DurableObjectNamespace<AppController>;
     VOITHER_D1: D1Database;
+    VOITHER_R2: R2Bucket;
+    R2_PUBLIC_ID: string;
 }
 /**
  * Get AppController stub for session management

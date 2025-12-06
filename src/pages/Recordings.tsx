@@ -2,17 +2,17 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Mic, StopCircle, Play, Pause, Trash2, UploadCloud, UserPlus, Loader2, Video, VideoOff, Search } from 'lucide-react';
+import { Mic, StopCircle, UserPlus, Loader2, Video, VideoOff, Search, PhoneOff, ScreenShare, ScreenShareOff, MicOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { chatService } from '@/lib/chat';
 import { useDebounce } from 'react-use';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
-type RecordingState = 'idle' | 'recording' | 'stopped' | 'playing';
+import { Badge } from '@/components/ui/badge';
+type CallState = 'idle' | 'calling' | 'connected' | 'ended';
 interface Patient {
   id: string;
   patient_id: string;
@@ -21,17 +21,22 @@ interface Patient {
 }
 const Recordings: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
-  const [recordingState, setRecordingState] = useState<RecordingState>('idle');
-  const [mediaBlob, setMediaBlob] = useState<Blob | null>(null);
-  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [callState, setCallState] = useState<CallState>('idle');
   const [isCreatingPatient, setIsCreatingPatient] = useState(false);
-  const [recordingType, setRecordingType] = useState<'audio' | 'video'>('audio');
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
-  const mediaRef = useRef<HTMLAudioElement | HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const newPatientFormRef = useRef<HTMLFormElement>(null);
+  const roomIdRef = useRef<string | null>(null);
+  const localSessionIdRef = useRef<string>(crypto.randomUUID());
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   useDebounce(() => setDebouncedSearchTerm(searchTerm), 300, [searchTerm]);
@@ -50,68 +55,63 @@ const Recordings: React.FC = () => {
       p.crm.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
     );
   }, [patients, debouncedSearchTerm]);
-  const startRecording = async () => {
-    if (!selectedPatientId) {
+  const startCall = async () => {
+    if (!selectedPatient) {
       toast.error("Please select a patient first.");
       return;
     }
+    setCallState('calling');
     try {
-      const constraints = recordingType === 'video' 
-        ? { audio: true, video: { facingMode: 'user' } }
-        : { audio: true };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (recordingType === 'video' && localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-      const mimeType = recordingType === 'video' ? 'video/webm;codecs=vp9,opus' : 'audio/webm;codecs=opus';
-      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType });
-      mediaChunksRef.current = [];
-      mediaRecorderRef.current.ondataavailable = event => mediaChunksRef.current.push(event.data);
-      mediaRecorderRef.current.onstop = () => {
-        const blob = new Blob(mediaChunksRef.current, { type: mimeType });
-        setMediaBlob(blob);
-        setMediaUrl(URL.createObjectURL(blob));
-        setRecordingState('stopped');
-        stream.getTracks().forEach(track => track.stop());
-        if (localVideoRef.current) localVideoRef.current.srcObject = null;
+      const { roomId, iceServers } = await fetch(`/api/webrtc/join?sessionId=${localSessionIdRef.current}`).then(r => r.json());
+      roomIdRef.current = roomId;
+      pcRef.current = new RTCPeerConnection({ iceServers });
+      pcRef.current.onicecandidate = e => {
+        if (e.candidate) {
+          fetch(`/api/webrtc/signal/${roomIdRef.current}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: localSessionIdRef.current, data: { type: 'ice', candidate: e.candidate } })
+          });
+        }
       };
-      mediaRecorderRef.current.start();
-      setRecordingState('recording');
+      pcRef.current.ontrack = e => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = e.streams[0];
+          setCallState('connected');
+        }
+      };
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 48000 }
+      });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      stream.getTracks().forEach(track => pcRef.current?.addTrack(track, stream));
+      const offer = await pcRef.current.createOffer();
+      await pcRef.current.setLocalDescription(offer);
+      await fetch(`/api/webrtc/signal/${roomIdRef.current}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: localSessionIdRef.current, data: { type: 'offer', sdp: offer.sdp } })
+      });
     } catch (err) {
-      toast.error("Media access denied.", { description: "Please allow microphone/camera access.", action: { label: "Retry", onClick: startRecording } });
+      toast.error("Call failed to start.", { description: "Please allow camera/microphone access.", action: { label: "Retry", onClick: startCall } });
+      setCallState('idle');
     }
   };
-  const stopRecording = () => mediaRecorderRef.current?.stop();
-  const handleUpload = async () => {
-    if (!mediaBlob || !selectedPatientId) return;
-    toast.info("Uploading recording...");
-    const reader = new FileReader();
-    reader.readAsDataURL(mediaBlob);
-    reader.onloadend = async () => {
-      const base64data = reader.result as string;
-      const selectedPatient = patients.find(p => p.id === selectedPatientId);
-      if (!selectedPatient) return;
-      const sessionId = crypto.randomUUID();
-      chatService.setSessionId(sessionId);
-      const newRecording = { url: base64data, type: recordingType, duration: mediaBlob.size / (recordingType === 'video' ? 15000 : 6000), timestamp: Date.now() };
-      const sessionData = {
-        inputs: { patientId: selectedPatient.patient_id, crm: selectedPatient.crm, professionalName: selectedPatient.name },
-        stages: [],
-        report: { recordings: [newRecording] }
-      };
-      const res = await chatService.createSession(`Recording for ${selectedPatient.name}`, sessionData);
-      if (res.success) {
-        toast.success("Recording saved to a new session!");
-        resetRecording();
-      } else {
-        toast.error("Failed to save recording.", { description: res.error });
-      }
-    };
-  };
-  const resetRecording = () => {
-    setMediaBlob(null);
-    setMediaUrl(null);
-    setRecordingState('idle');
+  const hangUp = async () => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    pcRef.current?.close();
+    localStreamRef.current?.getTracks().forEach(track => track.stop());
+    screenStreamRef.current?.getTracks().forEach(track => track.stop());
+    if (roomIdRef.current) {
+      await fetch(`/api/webrtc/leave/${roomIdRef.current}?sessionId=${localSessionIdRef.current}`, { method: 'POST' });
+    }
+    setCallState('ended');
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
   };
   const handleCreatePatient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,15 +121,14 @@ const Recordings: React.FC = () => {
       toast.error("Name and CRM are required.");
       return;
     }
-    if (!data.patient_id) {
-      data.patient_id = `PATIENT-${crypto.randomUUID().slice(0, 8)}`;
-    }
+    if (!data.patient_id) data.patient_id = `PATIENT-${crypto.randomUUID().slice(0, 8)}`;
     setIsCreatingPatient(true);
     const res = await chatService.createPatient(data);
     if (res.success && res.data?.id) {
       toast.success('Patient created successfully!');
       await loadPatients();
-      setSelectedPatientId(res.data.id);
+      const newPatient = { ...data, id: res.data.id };
+      setSelectedPatient(newPatient);
       newPatientFormRef.current?.reset();
       document.getElementById('close-patient-dialog')?.click();
     } else {
@@ -140,7 +139,7 @@ const Recordings: React.FC = () => {
   return (
     <AppLayout>
       <h1 className="font-display font-bold text-4xl text-text-primary mb-2">Record Media</h1>
-      <p className="text-muted-foreground mb-8">Capture audio or video and attach it to a patient's record.</p>
+      <p className="text-muted-foreground mb-8">Start a video call and record the session for analysis.</p>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1 space-y-6">
           <Card>
@@ -149,9 +148,7 @@ const Recordings: React.FC = () => {
               <div className="flex justify-between items-center">
                 <CardDescription>Choose an existing patient.</CardDescription>
                 <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-2" /> New</Button>
-                  </DialogTrigger>
+                  <DialogTrigger asChild><Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-2" /> New</Button></DialogTrigger>
                   <DialogContent>
                     <DialogHeader><DialogTitle>Create New Patient</DialogTitle></DialogHeader>
                     <form ref={newPatientFormRef} onSubmit={handleCreatePatient} className="space-y-4">
@@ -161,9 +158,7 @@ const Recordings: React.FC = () => {
                       <Input name="crm" placeholder="Professional's CRM" required />
                       <DialogFooter>
                         <DialogClose asChild><Button id="close-patient-dialog" type="button" variant="ghost">Cancel</Button></DialogClose>
-                        <Button type="submit" disabled={isCreatingPatient}>
-                          {isCreatingPatient && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Create Patient
-                        </Button>
+                        <Button type="submit" disabled={isCreatingPatient}>{isCreatingPatient && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Create Patient</Button>
                       </DialogFooter>
                     </form>
                   </DialogContent>
@@ -180,11 +175,8 @@ const Recordings: React.FC = () => {
                   <TableHeader><TableRow><TableHead>Patient</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {filteredPatients.map(p => (
-                      <TableRow key={p.id} onClick={() => setSelectedPatientId(p.id)} className={`cursor-pointer ${selectedPatientId === p.id ? 'bg-accent' : ''}`}>
-                        <TableCell>
-                          <div className="font-medium">{p.name}</div>
-                          <div className="text-sm text-muted-foreground">{p.patient_id}</div>
-                        </TableCell>
+                      <TableRow key={p.id} onClick={() => setSelectedPatient(p)} className={`cursor-pointer ${selectedPatient?.id === p.id ? 'bg-accent' : ''}`}>
+                        <TableCell><div className="font-medium">{p.name}</div><div className="text-sm text-muted-foreground">{p.patient_id}</div></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -195,38 +187,34 @@ const Recordings: React.FC = () => {
         </div>
         <div className="lg:col-span-2">
           <Card>
-            <CardHeader><CardTitle>2. New Recording</CardTitle><CardDescription>The media will be saved in high-quality WEBM format.</CardDescription></CardHeader>
-            <CardContent className="space-y-6">
-              <div className="p-4 border rounded-lg bg-surface-subtle aspect-video flex items-center justify-center">
-                {recordingType === 'video' ? (
-                  <video ref={localVideoRef} className="w-full h-full bg-black rounded" autoPlay muted playsInline></video>
-                ) : (
-                  <div className="text-center text-muted-foreground">Audio recording active</div>
-                )}
-              </div>
-              {mediaUrl && (
-                <div className="flex items-center gap-4 flex-wrap">
-                  {recordingType === 'video' ? (
-                    <video ref={mediaRef as React.RefObject<HTMLVideoElement>} src={mediaUrl} controls className="w-full" onPlay={() => setRecordingState('playing')} onPause={() => setRecordingState('stopped')} onEnded={() => setRecordingState('stopped')} />
-                  ) : (
-                    <audio ref={mediaRef as React.RefObject<HTMLAudioElement>} src={mediaUrl} controls className="w-full" onPlay={() => setRecordingState('playing')} onPause={() => setRecordingState('stopped')} onEnded={() => setRecordingState('stopped')} />
-                  )}
-                </div>
-              )}
-              <div className="flex flex-col sm:flex-row gap-4">
-                {recordingState === 'idle' && (
+            <CardHeader>
+              <CardTitle>2. Video Call</CardTitle>
+              <CardDescription>
+                {callState === 'idle' && "Start a video call with the selected patient."}
+                {callState === 'calling' && <Badge variant="secondary">Calling...</Badge>}
+                {callState === 'connected' && <Badge>Connected</Badge>}
+                {callState === 'ended' && <Badge variant="outline">Call Ended</Badge>}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
+                <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
+                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Local</CardTitle></CardHeader><CardContent className="p-0"><video ref={localVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay muted playsInline aria-label="Local video feed" /></CardContent></Card>
+                </motion.div>
+                <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
+                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Remote</CardTitle></CardHeader><CardContent className="p-0"><video ref={remoteVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay playsInline aria-label="Remote video feed" /></CardContent></Card>
+                </motion.div>
+              </motion.div>
+              <div className="flex flex-wrap justify-center gap-2 p-2 border rounded-lg bg-surface-subtle">
+                {callState === 'idle' && <Button onClick={startCall} disabled={!selectedPatient} className="flex-1"><Video className="w-4 h-4 mr-2" /> Start Video Call</Button>}
+                {(callState === 'calling' || callState === 'connected') && (
                   <>
-                    <Select value={recordingType} onValueChange={(v) => setRecordingType(v as 'audio' | 'video')}>
-                      <SelectTrigger className="w-full sm:w-[120px]"><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="audio">Audio</SelectItem><SelectItem value="video">Video</SelectItem></SelectContent>
-                    </Select>
-                    <Button onClick={startRecording} disabled={!selectedPatientId} className="w-full sm:w-auto">
-                      {recordingType === 'audio' ? <Mic className="w-4 h-4 mr-2" /> : <Video className="w-4 h-4 mr-2" />} Start Recording
-                    </Button>
+                    <Button variant={isAudioMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !isAudioMuted); setIsAudioMuted(!isAudioMuted); }}><MicOff className={isAudioMuted ? '' : 'hidden'} /><Mic className={isAudioMuted ? 'hidden' : ''} /></Button>
+                    <Button variant={isVideoMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = !isVideoMuted); setIsVideoMuted(!isVideoMuted); }}><VideoOff className={isVideoMuted ? '' : 'hidden'} /><Video className={isVideoMuted ? 'hidden' : ''} /></Button>
+                    <Button variant="outline" size="icon" disabled><ScreenShare /></Button>
+                    <Button onClick={hangUp} variant="destructive" className="flex-1"><PhoneOff className="w-4 h-4 mr-2" /> Hang Up</Button>
                   </>
                 )}
-                {recordingState === 'recording' && <Button onClick={stopRecording} variant="destructive" className="w-full sm:w-auto"><StopCircle className="w-4 h-4 mr-2" /> Stop Recording</Button>}
-                {recordingState === 'stopped' && (<><Button onClick={handleUpload} className="w-full sm:w-auto"><UploadCloud className="w-4 h-4 mr-2" /> Save to New Session</Button><Button onClick={resetRecording} variant="outline" className="w-full sm:w-auto"><Trash2 className="w-4 h-4 mr-2" /> Discard</Button></>)}
               </div>
             </CardContent>
           </Card>
