@@ -78,7 +78,8 @@ function updateWranglerJsonc() {
 
 function runSetupCommands() {
     const commands = [
-    "bun add html2pdf.js@^0.10.1"
+    "bun add html2pdf.js@^0.10.1",
+    "bun install react-dropzone"
 ];
     
     if (commands.length === 0) {
