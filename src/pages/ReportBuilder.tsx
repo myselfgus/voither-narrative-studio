@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useDebounceCallback } from 'react-use';
+import { useDebounce } from 'react-use';
 import { Save, FileDown, Edit, XCircle, Bot, FileText } from 'lucide-react';
 import { Toaster, toast } from '@/components/ui/sonner';
 import TranscriptionInput, { TranscriptionInputs } from '@/components/TranscriptionInput';
@@ -92,12 +92,9 @@ const ReportBuilder: React.FC = () => {
       setSessionStatus('New unsaved session.');
     }
   }, [searchParams, sessionId, loadSession]);
-  const debouncedSetInputs = useDebounceCallback((newInputs: Partial<TranscriptionInputs>) => {
-    setInputs(prev => ({ ...prev, ...newInputs }));
-  }, 300);
   const handleInputsChange = useCallback((newInputs: Partial<TranscriptionInputs>) => {
-    debouncedSetInputs(newInputs);
-  }, [debouncedSetInputs]);
+    setInputs(prev => ({ ...prev, ...newInputs }));
+  }, []);
   const saveSession = useCallback(async () => {
     if (sessionId) {
       const dataToSave: SessionData = { inputs, stages, report: finalReport || undefined, lastSaved: Date.now() };
@@ -110,12 +107,7 @@ const ReportBuilder: React.FC = () => {
       }
     }
   }, [sessionId, inputs, stages, finalReport]);
-  const debouncedSaveSession = useDebounceCallback(saveSession, 10000);
-  useEffect(() => {
-    if (sessionId && (stages.some(s => s.status === 'complete') || Object.keys(inputs).length > 0)) {
-      debouncedSaveSession();
-    }
-  }, [stages, inputs, sessionId, debouncedSaveSession]);
+  useDebounce(saveSession, 10000, [inputs, stages, finalReport, sessionId]);
   const handleStartAnalysis = async (data: TranscriptionInputs) => {
     setIsProcessing(true);
     setFinalReport(null);

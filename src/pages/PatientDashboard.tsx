@@ -16,6 +16,7 @@ import { saveAs } from 'file-saver';
 import { generateReportHtml } from '@/lib/reportHtml';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
 interface Patient {
   id: string;
   patient_id: string;
@@ -32,6 +33,7 @@ interface Session {
 }
 interface Recording {
   url: string;
+  type: 'audio' | 'video';
   duration: number;
   timestamp: number;
 }
@@ -75,12 +77,14 @@ const PatientDashboard: React.FC = () => {
       setSessions(res.data.sessions);
       const allRecordings = (res.data.sessions as Session[]).flatMap(s => {
         try {
-          return JSON.parse(s.report)?.recordings || [];
+          const report = JSON.parse(s.report);
+          return report?.report?.recordings || report?.recordings || [];
         } catch {
           return [];
         }
-      });
+      }).filter(r => r.url && r.type);
       setRecordings(allRecordings);
+      console.log('Loaded recordings for patient:', allRecordings);
     } else {
       toast.error('Failed to load patient data.', { description: res.error });
     }
@@ -94,6 +98,7 @@ const PatientDashboard: React.FC = () => {
     const toastId = toast.loading("Preparing all reports for download...");
     const zip = new JSZip();
     const { default: html2pdf } = await import('html2pdf.js');
+    let fileCount = 0;
     for (const session of sessions) {
       try {
         const reportContainer = JSON.parse(session.report);
@@ -106,14 +111,18 @@ const PatientDashboard: React.FC = () => {
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
           }).output('blob');
           zip.file(`session_${session.session_id}/report.pdf`, pdfBlob);
+          fileCount++;
         }
-        if (reportContainer.recordings) {
-          reportContainer.recordings.forEach((rec: Recording, index: number) => {
+        const sessionRecordings = reportData?.recordings || reportContainer?.recordings || [];
+        if (sessionRecordings) {
+          for (const [index, rec] of sessionRecordings.entries()) {
             const base64Data = rec.url.split(',')[1];
             if (base64Data) {
-              zip.file(`session_${session.session_id}/recording_${index + 1}.webm`, base64Data, { base64: true });
+              const fileExtension = rec.type === 'video' ? 'webm' : 'webm';
+              zip.file(`session_${session.session_id}/recording_${index + 1}.${fileExtension}`, base64Data, { base64: true });
+              fileCount++;
             }
-          });
+          }
         }
       } catch (error) {
         console.error(`Failed to process session ${session.session_id} for zip export.`, error);
@@ -122,6 +131,7 @@ const PatientDashboard: React.FC = () => {
     zip.generateAsync({ type: 'blob' }).then(content => {
       saveAs(content, `voither-patient-${patient?.patient_id}-exports.zip`);
       toast.success("All reports and recordings downloaded.", { id: toastId });
+      console.log(`Exported ZIP for patient ${patientId} with ${fileCount} files.`);
     });
   };
   if (loading) {
@@ -145,13 +155,22 @@ const PatientDashboard: React.FC = () => {
         <motion.div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
           {sessions.map(session => {
             let reportData: NarrativeReportData | null = null;
+            let sessionRecordings: Recording[] = [];
             try {
-              reportData = JSON.parse(session.report)?.report as NarrativeReportData;
+              const parsedReport = JSON.parse(session.report);
+              reportData = parsedReport?.report as NarrativeReportData;
+              sessionRecordings = parsedReport?.report?.recordings || parsedReport?.recordings || [];
             } catch (e) { /* Gracefully fail */ }
             return (
               <motion.div key={session.session_id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
                 <Card className="h-full flex flex-col">
-                  <CardHeader><CardTitle className="truncate">{session.title}</CardTitle><CardDescription>{format(new Date(session.last_active * 1000), "dd/MM/yyyy 'at' HH:mm", { locale: ptBR })}</CardDescription></CardHeader>
+                  <CardHeader>
+                    <CardTitle className="truncate">{session.title}</CardTitle>
+                    <div className="flex justify-between items-center">
+                      <CardDescription>{format(new Date(session.last_active * 1000), "dd/MM/yyyy 'at' HH:mm", { locale: ptBR })}</CardDescription>
+                      {sessionRecordings.length > 0 && <Badge variant="secondary">{sessionRecordings.length} rec.</Badge>}
+                    </div>
+                  </CardHeader>
                   <CardContent className="flex-grow"><SessionThumbnail reportData={reportData} /></CardContent>
                   <CardFooter className="flex justify-between items-center"><Button asChild variant="outline" size="sm"><Link to={`/builder?session=${session.session_id}`}><Edit className="w-4 h-4 mr-2" /> Open</Link></Button></CardFooter>
                 </Card>
@@ -167,18 +186,23 @@ const PatientDashboard: React.FC = () => {
         </div>
       )}
       <Card className="mt-8">
-        <CardHeader><CardTitle>Recordings ({recordings.length})</CardTitle><CardDescription>All audio recordings associated with this patient.</CardDescription></CardHeader>
-        <CardContent className="space-y-4">
+        <CardHeader><CardTitle>Recordings ({recordings.length})</CardTitle><CardDescription>All audio and video recordings associated with this patient.</CardDescription></CardHeader>
+        <CardContent>
           {recordings.length > 0 ? (
-            <motion.div className="space-y-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
+            <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-6" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
               {recordings.map((rec, i) => (
                 <motion.div key={i} variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }}>
                   <Card>
-                    <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4">
-                      <audio src={rec.url} controls className="w-full sm:w-auto sm:flex-grow" />
-                      <div className="flex items-center gap-2">
-                        <Select defaultValue="1" onValueChange={v => { const audio = document.querySelector(`audio[src="${rec.url}"]`) as HTMLAudioElement; if (audio) audio.playbackRate = parseFloat(v); }}>
-                          <SelectTrigger className="w-[80px]"><SelectValue /></SelectTrigger>
+                    <CardContent className="p-4">
+                      {rec.type === 'video' ? (
+                        <video src={rec.url} controls className="w-full aspect-video rounded-md bg-black" />
+                      ) : (
+                        <audio src={rec.url} controls className="w-full" />
+                      )}
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-muted-foreground">{new Date(rec.timestamp).toLocaleString()}</span>
+                        <Select defaultValue="1" onValueChange={v => { const media = document.querySelector(`[src="${rec.url}"]`) as HTMLMediaElement; if (media) media.playbackRate = parseFloat(v); }}>
+                          <SelectTrigger className="w-[80px] h-8"><SelectValue /></SelectTrigger>
                           <SelectContent><SelectItem value="0.5">0.5x</SelectItem><SelectItem value="1">1x</SelectItem><SelectItem value="1.5">1.5x</SelectItem></SelectContent>
                         </Select>
                       </div>
@@ -190,7 +214,7 @@ const PatientDashboard: React.FC = () => {
           ) : (
             <div className="text-center py-8 border-2 border-dashed rounded-lg">
               <h3 className="text-lg font-medium text-muted-foreground">No recordings found.</h3>
-              <Button asChild className="mt-4"><Link to="/recordings"><Mic className="w-4 h-4 mr-2" />Record First Audio</Link></Button>
+              <Button asChild className="mt-4"><Link to="/recordings"><Mic className="w-4 h-4 mr-2" />Record First Audio/Video</Link></Button>
             </div>
           )}
         </CardContent>

@@ -1,17 +1,58 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { SessionInfo } from './types';
 import type { Env } from './core-utils';
-// ��� AI Extension Point: Add session management features
 export class AppController extends DurableObject<Env> {
   private sessions = new Map<string, SessionInfo>();
   private reports = new Map<string, string>();
-  private apiKeys = new Map<string, string>(); // Store API keys per session
+  private apiKeys = new Map<string, string>();
+  private webrtcSignals = new Map<string, any[]>();
   private loaded = false;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
   }
   private async ensureLoaded(): Promise<void> {
     if (!this.loaded) {
+      // D1 Migration Check
+      try {
+        const { results } = await this.env.VOITHER_D1.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('Patients', 'Sessions')").all();
+        const tableNames = results.map((r: any) => r.name);
+        if (!tableNames.includes('Patients') || !tableNames.includes('Sessions')) {
+          console.log('D1 schema missing. Applying migrations...');
+          const migrationSQL = `
+            DROP TABLE IF EXISTS Sessions;
+            DROP TABLE IF EXISTS Patients;
+            CREATE TABLE Patients (
+                id TEXT PRIMARY KEY,
+                patient_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                context TEXT,
+                crm TEXT NOT NULL,
+                metadata TEXT,
+                created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+                updated_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+                UNIQUE(patient_id, crm)
+            );
+            CREATE TABLE Sessions (
+                id TEXT PRIMARY KEY,
+                patient_id TEXT NOT NULL,
+                session_id TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                stages TEXT,
+                report TEXT,
+                created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+                last_active INTEGER DEFAULT (unixepoch()) NOT NULL,
+                FOREIGN KEY (patient_id) REFERENCES Patients(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_patient_id ON Patients(patient_id);
+            CREATE INDEX IF NOT EXISTS idx_session_patient_id ON Sessions(patient_id);
+          `;
+          const statements = migrationSQL.split(';').filter(s => s.trim()).map(s => this.env.VOITHER_D1.prepare(s));
+          await this.env.VOITHER_D1.batch(statements);
+          console.log('D1 migration complete.');
+        }
+      } catch (e) {
+        console.error("D1 migration check failed:", e);
+      }
       const storedSessions = await this.ctx.storage.get<Record<string, SessionInfo>>('sessions') || {};
       this.sessions = new Map(Object.entries(storedSessions));
       const storedReports = await this.ctx.storage.get<Record<string, string>>('reports') || {};
@@ -33,12 +74,7 @@ export class AppController extends DurableObject<Env> {
   async addSession(sessionId: string, title?: string): Promise<void> {
     await this.ensureLoaded();
     const now = Date.now();
-    this.sessions.set(sessionId, {
-      id: sessionId,
-      title: title || `Chat ${new Date(now).toLocaleDateString()}`,
-      createdAt: now,
-      lastActive: now
-    });
+    this.sessions.set(sessionId, { id: sessionId, title: title || `Chat ${new Date(now).toLocaleDateString()}`, createdAt: now, lastActive: now });
     await this.persistSessions();
   }
   async removeSession(sessionId: string): Promise<boolean> {
@@ -50,40 +86,15 @@ export class AppController extends DurableObject<Env> {
       await this.persistSessions();
       await this.persistReports();
       await this.persistApiKeys();
-      // Also delete from D1
       try {
         await this.env.VOITHER_D1.prepare('DELETE FROM Sessions WHERE session_id = ?1').bind(sessionId).run();
-      } catch (e) {
-        console.error('Failed to delete session from D1:', e);
-      }
+      } catch (e) { console.error('Failed to delete session from D1:', e); }
     }
     return deleted;
-  }
-  async updateSessionActivity(sessionId: string): Promise<void> {
-    await this.ensureLoaded();
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.lastActive = Date.now();
-      await this.persistSessions();
-    }
-  }
-  async updateSessionTitle(sessionId: string, title: string): Promise<boolean> {
-    await this.ensureLoaded();
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.title = title;
-      await this.persistSessions();
-      return true;
-    }
-    return false;
   }
   async listSessions(): Promise<SessionInfo[]> {
     await this.ensureLoaded();
     return Array.from(this.sessions.values()).sort((a, b) => b.lastActive - a.lastActive);
-  }
-  async getSession(sessionId: string): Promise<SessionInfo | null> {
-    await this.ensureLoaded();
-    return this.sessions.get(sessionId) || null;
   }
   async setReportData(sessionId: string, data: string): Promise<void> {
     await this.ensureLoaded();
@@ -92,25 +103,17 @@ export class AppController extends DurableObject<Env> {
     }
     this.reports.set(sessionId, data);
     await this.persistReports();
-    // D1 Sync Logic
     try {
       const reportData = JSON.parse(data);
       const inputs = reportData.inputs || {};
       const patientId = inputs.patientId;
       const crm = inputs.crm;
       if (patientId && crm) {
-        // 1. Find Patient ID from D1
-        const patientResult = await this.env.VOITHER_D1.prepare(
-          `SELECT id FROM Patients WHERE patient_id = ?1 AND crm = ?2`
-        ).bind(patientId, crm).first<{ id: string }>();
+        const patientResult = await this.env.VOITHER_D1.prepare(`SELECT id FROM Patients WHERE patient_id = ?1 AND crm = ?2`).bind(patientId, crm).first<{ id: string }>();
         const dbPatientId = patientResult?.id;
         if (dbPatientId) {
-          // 2. Upsert Session
           const sessionUUID = crypto.randomUUID();
-          await this.env.VOITHER_D1.prepare(
-            `INSERT INTO Sessions (id, patient_id, session_id, title, stages, report, last_active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch())
-             ON CONFLICT(session_id) DO UPDATE SET title=excluded.title, stages=excluded.stages, report=excluded.report, last_active=unixepoch()`
-          ).bind(sessionUUID, dbPatientId, sessionId, `Relatório para ${patientId}`, JSON.stringify(reportData.stages), data).run();
+          await this.env.VOITHER_D1.prepare(`INSERT INTO Sessions (id, patient_id, session_id, title, stages, report, last_active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch()) ON CONFLICT(session_id) DO UPDATE SET title=excluded.title, stages=excluded.stages, report=excluded.report, last_active=unixepoch()`).bind(sessionUUID, dbPatientId, sessionId, `Relatório para ${patientId}`, JSON.stringify(reportData.stages), data).run();
         }
       }
     } catch (e) {
@@ -121,7 +124,6 @@ export class AppController extends DurableObject<Env> {
     await this.ensureLoaded();
     let report = this.reports.get(sessionId);
     if (report) return report;
-    // Fallback to D1
     try {
       const { results } = await this.env.VOITHER_D1.prepare('SELECT report FROM Sessions WHERE session_id = ?1').bind(sessionId).run<{ report: string }>();
       if (results && results.length > 0) {
@@ -132,9 +134,7 @@ export class AppController extends DurableObject<Env> {
           return report;
         }
       }
-    } catch (e) {
-      console.error('D1 fallback failed:', e);
-    }
+    } catch (e) { console.error('D1 fallback failed:', e); }
     return null;
   }
   async setApiKey(sessionId: string, key: string): Promise<{ success: boolean; message?: string }> {
@@ -146,13 +146,23 @@ export class AppController extends DurableObject<Env> {
     await this.persistApiKeys();
     return { success: true };
   }
-  async getApiKey(sessionId: string, masked: boolean = true): Promise<string | null> {
-    await this.ensureLoaded();
-    const key = this.apiKeys.get(sessionId);
-    if (!key) return null;
-    if (masked) {
-      return `${key.substring(0, 5)}...${key.substring(key.length - 4)}`;
+  async signal(sessionId: string, data: any): Promise<void> {
+    // Basic signaling: store and broadcast. Not for production scale.
+    const signals = this.webrtcSignals.get(sessionId) || [];
+    signals.push(data);
+    this.webrtcSignals.set(sessionId, signals);
+    // In a real app, you'd broadcast this to the other peer.
+    // For this demo, we'll just store it.
+    setTimeout(() => this.webrtcSignals.delete(sessionId), 300000); // 5 min TTL
+  }
+  async fetch(request: Request): Promise<Response> {
+    // This allows calling methods on the DO via fetch, used for signaling.
+    const url = new URL(request.url);
+    if (url.pathname === '/signal') {
+        const { sessionId, data } = await request.json<{sessionId: string, data: any}>();
+        await this.signal(sessionId, data);
+        return new Response(JSON.stringify({success: true}));
     }
-    return key;
+    return new Response('Not found', { status: 404 });
   }
 }
