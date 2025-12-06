@@ -51,3 +51,14 @@ export const prepareCoverData = (data: NarrativeReportData) => {
     sections: [], // Cover doesn't need sections
   };
 };
+// Simple diff utility for highlighting changes
+export const computeDiff = (oldObj: any, newObj: any): { added: string[], removed: string[], edited: string[] } => {
+  const oldKeys = new Set(Object.keys(oldObj));
+  const newKeys = new Set(Object.keys(newObj));
+  const added = [...newKeys].filter(key => !oldKeys.has(key));
+  const removed = [...oldKeys].filter(key => !newKeys.has(key));
+  const edited = [...oldKeys].filter(key =>
+    newKeys.has(key) && JSON.stringify(oldObj[key]) !== JSON.stringify(newObj[key])
+  );
+  return { added, removed, edited };
+};

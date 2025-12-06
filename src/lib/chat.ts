@@ -1,11 +1,25 @@
-import type { SessionInfo, ChatState } from '../../worker/types';
+import type { SessionInfo } from '../../worker/types';
 import { NarrativeReportData } from '@/types/report';
 class ChatService {
   private sessionId: string;
   private baseUrl: string;
+  private preLLMData?: string;
   constructor() {
     this.sessionId = crypto.randomUUID();
     this.baseUrl = `/api/chat/${this.sessionId}`;
+  }
+  getSessionId(): string {
+    return this.sessionId;
+  }
+  setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
+    this.baseUrl = `/api/chat/${this.sessionId}`;
+  }
+  storePreLLMData(data: NarrativeReportData): void {
+    this.preLLMData = JSON.stringify(data, null, 2);
+  }
+  getPreLLMData(): string | null {
+    return this.preLLMData || null;
   }
   async sendMessage(
     message: string,
@@ -28,22 +42,12 @@ class ChatService {
           const chunk = decoder.decode(value, { stream: true });
           if (chunk) onChunk(chunk);
         }
-        return { success: true };
       }
-      // Should not be reached in streaming mode, but as a fallback
-      await response.json();
       return { success: true };
     } catch (error) {
       console.error('Failed to send message:', error);
       return { success: false };
     }
-  }
-  getSessionId(): string {
-    return this.sessionId;
-  }
-  setSessionId(sessionId: string): void {
-    this.sessionId = sessionId;
-    this.baseUrl = `/api/chat/${this.sessionId}`;
   }
   async createSession(title?: string, reportData?: NarrativeReportData): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> {
     try {
@@ -52,6 +56,7 @@ class ChatService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, sessionId: this.sessionId, reportData: reportData ? JSON.stringify(reportData) : undefined })
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
       return { success: false, error: 'Failed to create session' };
@@ -60,6 +65,7 @@ class ChatService {
   async listSessions(): Promise<{ success: boolean; data?: SessionInfo[]; error?: string }> {
     try {
       const response = await fetch('/api/sessions');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
       return { success: false, error: 'Failed to list sessions' };
@@ -68,6 +74,7 @@ class ChatService {
   async deleteSession(sessionId: string): Promise<{ success: boolean; error?: string }> {
     try {
       const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
       return { success: false, error: 'Failed to delete session' };
@@ -80,6 +87,7 @@ class ChatService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: JSON.stringify(reportData) })
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
       return { success: false, error: 'Failed to save report' };

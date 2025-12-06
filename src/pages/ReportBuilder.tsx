@@ -1,13 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { FileUp, Bot, Download, Save } from 'lucide-react';
+import { FileUp, Bot, Download, Save, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Toaster, toast } from '@/components/ui/sonner';
 import { Skeleton } from '@/components/ui/skeleton';
+import { motion } from 'framer-motion';
 import UploadJson from '@/components/UploadJson';
 import ReportEditor from '@/components/ReportEditor';
 import ReportPreview from '@/components/ReportPreview';
+import DiffModal from '@/components/DiffModal';
 import { NarrativeReportData } from '@/types/report';
 import { validateReportData } from '@/lib/reportRenderer';
 import { getValidationPrompt } from '@/lib/llmPrompts';
@@ -17,11 +19,25 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 const ReportBuilder: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [sessionId, setSessionId] = useState<string | null>(searchParams.get('session'));
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [reportData, setReportData] = useState<NarrativeReportData | null>(null);
   const [isProcessingLLM, setIsProcessingLLM] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
+  const [preLLMData, setPreLLMData] = useState<string | null>(null);
+  const [postLLMData, setPostLLMData] = useState<string | null>(null);
+  const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
   const reportPreviewRef = useRef<HTMLDivElement>(null);
+  const loadSessionData = useCallback(async (id: string) => {
+    setIsLoadingSession(true);
+    const res = await chatService.loadReportFromSession(id);
+    if (res.success && res.data) {
+      setReportData(res.data);
+    } else {
+      toast.error("Falha ao carregar sessão", { description: res.error });
+      navigate('/builder', { replace: true });
+    }
+    setIsLoadingSession(false);
+  }, [navigate]);
   useEffect(() => {
     const currentSessionId = searchParams.get('session');
     if (currentSessionId) {
@@ -29,34 +45,25 @@ const ReportBuilder: React.FC = () => {
         setSessionId(currentSessionId);
         chatService.setSessionId(currentSessionId);
         loadSessionData(currentSessionId);
+      } else {
+        setIsLoadingSession(false);
       }
     } else {
       const newSessionId = chatService.getSessionId();
       setSessionId(newSessionId);
+      chatService.setSessionId(newSessionId);
+      setReportData(null);
       setIsLoadingSession(false);
     }
-  }, [searchParams, sessionId]);
-  const loadSessionData = async (id: string) => {
-    setIsLoadingSession(true);
-    const res = await chatService.loadReportFromSession(id);
-    if (res.success && res.data) {
-      setReportData(res.data);
-    } else {
-      toast.error("Falha ao carregar sessão", { description: res.error });
-      navigate('/builder'); // Redirect to new session if load fails
-    }
-    setIsLoadingSession(false);
-  };
+  }, [searchParams, sessionId, loadSessionData]);
   const handleJsonParsed = async (jsonData: any) => {
     const { valid, errors, normalized } = validateReportData(jsonData);
     if (valid && normalized) {
       setReportData(normalized);
       toast.success('JSON validado e carregado com sucesso.');
-      if (!searchParams.get('session')) {
-        const res = await chatService.createSession(normalized.reportTitle, normalized);
-        if (res.success && res.data) {
-          navigate(`/builder?session=${res.data.sessionId}`, { replace: true });
-        }
+      const res = await chatService.createSession(normalized.reportTitle, normalized);
+      if (res.success && res.data) {
+        navigate(`/builder?session=${res.data.sessionId}`, { replace: true });
       }
     } else {
       toast.error('Erro na validação do JSON.', { description: errors.join(' ') });
@@ -69,6 +76,8 @@ const ReportBuilder: React.FC = () => {
     }
     setIsProcessingLLM(true);
     toast.info('Iniciando orquestração com IA...', { id: 'llm-process' });
+    const originalDataString = JSON.stringify(reportData, null, 2);
+    setPreLLMData(originalDataString);
     const prompt = getValidationPrompt(reportData);
     let llmResponseJson = '';
     try {
@@ -80,7 +89,8 @@ const ReportBuilder: React.FC = () => {
       const { valid, normalized } = validateReportData(enrichedData);
       if (valid && normalized) {
         setReportData(normalized);
-        toast.success('Relatório enriquecido pela IA com sucesso!', { id: 'llm-process' });
+        setPostLLMData(JSON.stringify(normalized, null, 2));
+        toast.success('Relatório enriquecido pela IA!', { id: 'llm-process', description: 'Clique em "Ver Alterações" para revisar.' });
       } else {
         throw new Error('A IA retornou um JSON com estrutura inválida.');
       }
@@ -89,15 +99,14 @@ const ReportBuilder: React.FC = () => {
       if (retryCount < 2) {
         toast.warning(`Tentativa ${retryCount + 1} falhou. Tentando novamente...`, { id: 'llm-process' });
         setTimeout(() => handleEnrichWithLLM(retryCount + 1), 2000 * (retryCount + 1));
+        return;
       } else {
         toast.error('Falha no processamento da IA.', { id: 'llm-process', description: 'Por favor, tente novamente mais tarde.' });
-        setIsProcessingLLM(false);
       }
-      return; // Prevent finally block from running prematurely on retry
     }
     setIsProcessingLLM(false);
   };
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (sessionId && reportData) {
       const res = await chatService.saveReportToSession(sessionId, reportData);
       if (res.success) {
@@ -106,27 +115,32 @@ const ReportBuilder: React.FC = () => {
         toast.error("Falha ao salvar o relatório.", { description: res.error });
       }
     }
-  };
+  }, [sessionId, reportData]);
   const renderEditorContent = () => {
     if (isLoadingSession) {
       return <Skeleton className="h-96 w-full" />;
     }
     if (reportData) {
       return (
-        <div className="space-y-8">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
           <ReportEditor reportData={reportData} onUpdate={setReportData} onSave={handleSave} />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5" /> Orquestração IA</CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-text-secondary mb-4">Use a IA para validar, enriquecer e formatar o conteúdo.</p>
+            <CardContent className="flex flex-col gap-2">
+              <p className="text-sm text-text-secondary mb-2">Use a IA para validar, enriquecer e formatar o conteúdo.</p>
               <Button onClick={() => handleEnrichWithLLM()} disabled={isProcessingLLM} className="w-full">
                 {isProcessingLLM ? 'Processando...' : 'Validar e Enriquecer com IA'}
               </Button>
+              {postLLMData && (
+                <Button onClick={() => setIsDiffModalOpen(true)} variant="outline" className="w-full">
+                  <Eye className="w-4 h-4 mr-2" /> Ver Alterações
+                </Button>
+              )}
             </CardContent>
           </Card>
-        </div>
+        </motion.div>
       );
     }
     return (
@@ -172,9 +186,7 @@ const ReportBuilder: React.FC = () => {
             </div>
             <div className="lg:col-span-2">
               <Card className="sticky top-24">
-                <CardHeader>
-                  <CardTitle>Visualização do Relatório</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Visualização do Relatório</CardTitle></CardHeader>
                 <CardContent className="h-[calc(100vh-12rem)] overflow-y-auto bg-surface-muted p-4 rounded-b-lg">
                   <ReportPreview data={reportData} reportRef={reportPreviewRef} />
                 </CardContent>
@@ -183,6 +195,14 @@ const ReportBuilder: React.FC = () => {
           </div>
         </div>
       </div>
+      {preLLMData && postLLMData && (
+        <DiffModal
+          isOpen={isDiffModalOpen}
+          onClose={() => setIsDiffModalOpen(false)}
+          oldData={preLLMData}
+          newData={postLLMData}
+        />
+      )}
       <Toaster richColors closeButton />
     </div>
   );

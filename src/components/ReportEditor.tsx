@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -10,21 +10,36 @@ import { Label } from '@/components/ui/label';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Trash2, PlusCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { useDebounce } from 'react-use';
+const contentBlockSchema = z.object({
+  type: z.enum(['paragraph', 'quote', 'list']),
+  content: z.union([z.string(), z.array(z.string())]),
+});
+const subsectionSchema = z.object({
+  title: z.string().min(1, "T��tulo da subseção é obrigatório"),
+  blocks: z.array(contentBlockSchema),
+});
+const sectionSchema = z.object({
+  title: z.string().min(1, "Título da seção é obrigatório"),
+  intro: z.array(contentBlockSchema),
+  subsections: z.array(subsectionSchema),
+});
 const metadataSchema = z.object({
-  paciente_id: z.string().min(1, "ID do paciente �� obrigatório"),
+  paciente_id: z.string().min(1, "ID do paciente é obrigatório"),
   contexto: z.string().min(1, "Contexto é obrigatório"),
   data_analise: z.string().min(1, "Data é obrigatória"),
   medico_responsavel: z.string().min(1, "Médico é obrigatório"),
   crm: z.string().min(1, "CRM é obrigatório"),
+  total_turnos: z.number().default(0),
+  total_palavras: z.number().default(0),
+  duracao_estimada_consulta: z.string().default('N/A'),
+  analista: z.string().default('Voither HealthOS'),
 });
 const reportSchema = z.object({
   metadata: metadataSchema,
   reportTitle: z.string().min(1, "Título do relatório é obrigatório"),
-  keyQuote: z.string().min(1, "Citaç��o chave é obrigatória"),
-  sections: z.array(z.object({
-    title: z.string().min(1, "Título da seção é obrigatório"),
-    // We'll handle intro and subsections with more complex logic if needed
-  })),
+  keyQuote: z.string().min(1, "Citação chave é obrigatória"),
+  sections: z.array(sectionSchema),
 });
 interface ReportEditorProps {
   reportData: NarrativeReportData;
@@ -32,7 +47,7 @@ interface ReportEditorProps {
   onSave: () => void;
 }
 const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSave }) => {
-  const { control, register, handleSubmit, formState: { errors } } = useForm<NarrativeReportData>({
+  const { control, register, handleSubmit, watch, formState: { errors } } = useForm<NarrativeReportData>({
     resolver: zodResolver(reportSchema),
     defaultValues: reportData,
   });
@@ -40,6 +55,10 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
     control,
     name: "sections",
   });
+  const watchedFields = watch();
+  useDebounce(() => {
+    onUpdate(watchedFields);
+  }, 500, [watchedFields, onUpdate]);
   const onSubmit = (data: NarrativeReportData) => {
     onUpdate(data);
     onSave();
@@ -47,9 +66,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <Card>
-        <CardHeader>
-          <CardTitle>Metadados</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Metadados</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div>
             <Label htmlFor="metadata.paciente_id">ID do Paciente</Label>
@@ -79,9 +96,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
         </CardContent>
       </Card>
       <Card>
-        <CardHeader>
-          <CardTitle>Capa do Relatório</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Capa do Relatório</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div>
             <Label htmlFor="reportTitle">Título do Relatório</Label>
@@ -96,17 +111,15 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
         </CardContent>
       </Card>
       <Card>
-        <CardHeader>
-          <CardTitle>Seções do Conteúdo</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Seções do Conteúdo</CardTitle></CardHeader>
         <CardContent>
           <Accordion type="multiple" className="w-full">
             {fields.map((field, index) => (
               <AccordionItem value={`item-${index}`} key={field.id}>
                 <AccordionTrigger>
                   <div className="flex justify-between items-center w-full pr-4">
-                    <span>Seção {index + 1}: {reportData.sections[index]?.title}</span>
-                    <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
+                    <span className="truncate">Seção: {watchedFields.sections[index]?.title || 'Nova Seção'}</span>
+                    <Button type="button" variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); remove(index); }}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -116,7 +129,6 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
                     <Label htmlFor={`sections.${index}.title`}>Título da Seção</Label>
                     <Input id={`sections.${index}.title`} {...register(`sections.${index}.title`)} />
                   </div>
-                  {/* Editor for subsections and blocks can be added here */}
                 </AccordionContent>
               </AccordionItem>
             ))}
@@ -131,7 +143,6 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
           </Button>
         </CardContent>
       </Card>
-      <Button type="submit" className="w-full" size="lg">Salvar Alterações</Button>
     </form>
   );
 };
