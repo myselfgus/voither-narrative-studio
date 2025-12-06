@@ -14,8 +14,7 @@ class ChatService {
     this.baseUrl = `/api/chat/${this.sessionId}`;
   }
   newSession(): void {
-    this.sessionId = crypto.randomUUID();
-    this.baseUrl = `/api/chat/${this.sessionId}`;
+    this.setSessionId(crypto.randomUUID());
   }
   switchSession(sessionId: string): void {
     this.setSessionId(sessionId);
@@ -73,7 +72,9 @@ class ChatService {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
-      this.setSessionId(result.data.sessionId);
+      if (result.success) {
+        this.setSessionId(result.data.sessionId);
+      }
       return result;
     } catch (error) {
       return { success: false, error: 'Failed to create session' };
