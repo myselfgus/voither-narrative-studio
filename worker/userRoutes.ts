@@ -27,6 +27,42 @@ async function fileToBase64(file: File): Promise<string> {
     return `data:${file.type};base64,${base64}`;
 }
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
+    // Health Checks
+    app.get('/api/health/d1', async (c) => {
+        if (!c.env.VOITHER_D1) return c.json({ status: 'Unavailable' });
+        try {
+            await c.env.VOITHER_D1.prepare('SELECT 1').first();
+            return c.json({ status: 'Connected', lastPing: new Date().toISOString() });
+        } catch (e) {
+            console.error("D1 Health Check Failed:", e);
+            return c.json({ status: 'Error' }, { status: 500 });
+        }
+    });
+    app.get('/api/health/r2', async (c) => {
+        if (!c.env.VOITHER_R2) return c.json({ status: 'Unavailable' });
+        try {
+            // head() returns null if object doesn't exist, which is a success for a health check.
+            await c.env.VOITHER_R2.head('health-check-key');
+            return c.json({ status: 'Connected', lastPing: new Date().toISOString() });
+        } catch (e) {
+            console.error("R2 Health Check Failed:", e);
+            return c.json({ status: 'Error' }, { status: 500 });
+        }
+    });
+    app.get('/api/health/ai', async (c) => {
+        if (!c.env.CF_AI_BASE_URL || !c.env.CF_AI_API_KEY) return c.json({ status: 'Unavailable' });
+        try {
+            // A simple ping-like request. We don't need a full completion.
+            const response = await fetch(`${c.env.CF_AI_BASE_URL}`, {
+                method: 'OPTIONS',
+                headers: { 'Authorization': `Bearer ${c.env.CF_AI_API_KEY}` }
+            });
+            return c.json({ status: response.ok ? 'Connected' : 'Error', lastPing: new Date().toISOString() });
+        } catch (e) {
+            console.error("AI Gateway Health Check Failed:", e);
+            return c.json({ status: 'Error' }, { status: 500 });
+        }
+    });
     // Session Management (DO-based for active sessions)
     app.get('/api/sessions', async (c) => {
         const controller = getAppController(c.env);
@@ -35,12 +71,12 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     });
     app.post('/api/sessions', async (c) => {
         const body = await c.req.json().catch(() => ({}));
-        const { title, sessionId: providedSessionId, reportData } = body;
+        const { title, sessionId: providedSessionId, reportData, patient_id } = body;
         const sessionId = providedSessionId || crypto.randomUUID();
         await registerSession(c.env, sessionId, title || 'Novo Relatório');
         if (reportData) {
             const controller = getAppController(c.env);
-            await controller.setReportData(sessionId, reportData);
+            await controller.setReportData(sessionId, reportData, patient_id);
         }
         return c.json({ success: true, data: { sessionId, title } });
     });
@@ -76,7 +112,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     app.get('/api/patients', async (c) => {
         if (!c.env.VOITHER_D1) return c.json({ success: false, error: 'Database connection unavailable.' }, { status: 503 });
         try {
-            const { results } = await c.env.VOITHER_D1.prepare(`SELECT id, patient_id, name, context, crm, updated_at, (SELECT COUNT(*) FROM Sessions WHERE Sessions.patient_id = Patients.id) as session_count FROM Patients ORDER BY updated_at DESC`).run();
+            const { results } = await c.env.VOITHER_D1.prepare(`SELECT id, patient_id, name, context, crm, created_at, updated_at, (SELECT COUNT(*) FROM Sessions WHERE Sessions.patient_id = Patients.id) as session_count FROM Patients ORDER BY updated_at DESC`).run();
             return c.json({ success: true, data: results });
         } catch (e: any) {
             console.error('Failed to fetch patients:', e);
@@ -94,6 +130,28 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         } catch (e: any) {
             console.error(`Failed to fetch patient ${patientId}:`, e);
             return c.json({ success: false, error: 'Database query failed' }, { status: 500 });
+        }
+    });
+    app.get('/api/patients/:id/health', async (c) => {
+        if (!c.env.VOITHER_D1) return c.json({ success: false, error: 'Database unavailable' }, 503);
+        const patientId = c.req.param('id');
+        try {
+            const sessionCountResult = await c.env.VOITHER_D1.prepare('SELECT COUNT(*) as count FROM Sessions WHERE patient_id = ?1').bind(patientId).first<{ count: number }>();
+            const reportsResult = await c.env.VOITHER_D1.prepare('SELECT report FROM Sessions WHERE patient_id = ?1').bind(patientId).all<{ report: string }>();
+            let recordingCount = 0;
+            if (reportsResult.results) {
+                for (const row of reportsResult.results) {
+                    try {
+                        const report = JSON.parse(row.report);
+                        const recordings = report?.report?.recordings || report?.recordings || [];
+                        recordingCount += Array.isArray(recordings) ? recordings.length : 0;
+                    } catch {}
+                }
+            }
+            return c.json({ success: true, data: { sessions: sessionCountResult?.count || 0, recordings: recordingCount } });
+        } catch (e) {
+            console.error(`Failed to get health for patient ${patientId}:`, e);
+            return c.json({ success: false, error: 'Database query failed' }, 500);
         }
     });
     app.post('/api/patients', async (c) => {
@@ -161,6 +219,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     // R2 Video Upload
     app.put('/api/video/:patientId/upload', async (c) => {
         const patientId = c.req.param('patientId');
+        if (!patientId) return c.json({ success: false, error: 'Patient ID is required for upload' }, 400);
         const formData = await c.req.formData();
         const file = formData.get('video') as File;
         if (!file || file.size > 50 * 1024 * 1024) { // 50MB limit
@@ -187,12 +246,12 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     // Transcription Trigger
     app.post('/api/transcribe/:sessionId', async (c) => {
         const sessionId = c.req.param('sessionId');
-        const { audioUrl } = await c.req.json();
-        if (!audioUrl) return c.json({ success: false, error: 'audioUrl required' }, 400);
+        const { audioUrl, patient_id } = await c.req.json();
+        if (!audioUrl || !patient_id) return c.json({ success: false, error: 'audioUrl and patient_id required' }, 400);
         try {
             // Mock transcript for now. In production, use Workers AI speech-to-text.
             const transcript = 'This is a mock transcript from the audio file at ' + audioUrl;
-            const prompt = `Analyze the following transcript: ${transcript}`;
+            const prompt = `Analyze the following transcript for patient ${patient_id}: ${transcript}`;
             const agent = await getAgentByName<Env, ChatAgent>(c.env.CHAT_AGENT, sessionId);
             await agent.fetch(new Request(`http://dummy/chat`, {
                 method: 'POST',
