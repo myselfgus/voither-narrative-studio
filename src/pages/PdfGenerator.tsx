@@ -38,18 +38,29 @@ const PdfGenerator: React.FC = () => {
   const [showHtml, setShowHtml] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
-  const handleJsonParsed = (jsonData: any) => {
+  const handleJsonParsed = async (jsonData: any) => {
     if (JSON.stringify(jsonData).length > 2 * 1024 * 1024) {
       toast.error('File too large (max 2MB)');
       return;
     }
     const result = reportSchema.safeParse(jsonData);
     if (result.success) {
-      setRawJson(jsonData);
-      setEnrichedReport(result.data as unknown as NarrativeReportData);
+      const reportData = result.data as unknown as NarrativeReportData;
+      setRawJson(reportData);
+      setEnrichedReport(reportData);
       toast.success("JSON validado e carregado com sucesso.");
+      // Independent patient creation
+      const { metadata } = reportData;
+      await chatService.createPatient({
+          patient_id: metadata.paciente_id,
+          name: metadata.medico_responsavel, // Assuming doctor's name for patient name for now
+          crm: metadata.crm,
+          context: metadata.contexto
+      });
+      // Save raw data to a new session
+      await chatService.createSession(`Relatório para ${metadata.paciente_id}`, { report: reportData });
     } else {
-      toast.error("Esquema JSON inv��lido.", {
+      toast.error("Esquema JSON inválido.", {
         description: result.error.format()._errors.join('; '),
       });
       setRawJson(null);
@@ -62,7 +73,6 @@ const PdfGenerator: React.FC = () => {
       return;
     }
     setIsProcessing(true);
-    setEnrichedReport(null);
     toast.info("Enriquecendo dados com IA...", { description: "Isso pode levar um momento." });
     const prompt = getJsonEnrichPrompt(rawJson);
     const { success, output } = await chatService.sendMessage(prompt, 'voither');
@@ -77,10 +87,12 @@ const PdfGenerator: React.FC = () => {
           throw new Error("A saída da IA não corresponde ao esquema.");
         }
       } catch (error) {
-        toast.error("Falha ao analisar a resposta da IA.", { description: "A resposta não era um JSON válido." });
+        toast.error("Falha ao analisar a resposta da IA.", { description: "A resposta não era um JSON válido. Usando dados brutos." });
+        setEnrichedReport(rawJson as NarrativeReportData);
       }
     } else {
-      toast.error("Falha ao enriquecer os dados.");
+      toast.warning("AI indisponível—prosseguindo com dados brutos.", { description: "O enriquecimento falhou. Você pode visualizar ou exportar os dados originais." });
+      setEnrichedReport(rawJson as NarrativeReportData);
     }
     setIsProcessing(false);
     console.log('Cross-browser PDF test: Verify print preview in Chrome, Firefox, and Safari for consistent output.');
@@ -141,7 +153,7 @@ const PdfGenerator: React.FC = () => {
           <ResizablePanel defaultSize={40} minSize={30}>
             <ScrollArea className="h-full"><div className="p-4 space-y-4">
               <Card><CardHeader><CardTitle>1. Upload de JSON</CardTitle><CardDescription>Faça o upload de um arquivo JSON com a estrutura do relatório.</CardDescription></CardHeader><CardContent><UploadJson onJsonParsed={handleJsonParsed} /></CardContent></Card>
-              <Card><CardHeader><CardTitle>2. Enriquecer com IA</CardTitle><CardDescription>Use a IA para preencher dados ausentes e refinar o conteúdo.</CardDescription></CardHeader><CardContent><Button onClick={handleEnrich} disabled={!rawJson || isProcessing} className="w-full">{isProcessing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}{isProcessing ? 'Processando...' : 'Enriquecer com IA'}</Button></CardContent></Card>
+              <Card><CardHeader><CardTitle>2. Enriquecer com IA (Opcional)</CardTitle><CardDescription>Use a IA para preencher dados ausentes e refinar o conteúdo.</CardDescription></CardHeader><CardContent className="flex gap-2"><Button onClick={() => setEnrichedReport(rawJson)} variant="outline" disabled={!rawJson}>Visualizar Bruto</Button><Button onClick={handleEnrich} disabled={!rawJson || isProcessing} className="flex-grow">{isProcessing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}{isProcessing ? 'Processando...' : 'Enriquecer com IA'}</Button></CardContent></Card>
             </div></ScrollArea>
           </ResizablePanel>
           <ResizableHandle withHandle />

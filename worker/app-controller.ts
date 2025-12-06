@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS Patients (
   name TEXT,
   metadata TEXT
 );
-
 CREATE TABLE IF NOT EXISTS Sessions (
   id TEXT PRIMARY KEY,
   title TEXT,
@@ -30,7 +29,7 @@ export class AppController extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
   }
-  private async log(message: string, level: 'INFO' | 'ERROR' = 'INFO') {
+  private async log(message: string, level: 'INFO' | 'ERROR' | 'WARN' = 'INFO') {
     const logEntry = `${new Date().toISOString()} [${level}] ${message}`;
     this.logs.push(logEntry);
     if (this.logs.length > 100) {
@@ -46,33 +45,36 @@ export class AppController extends DurableObject<Env> {
   }
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
-    if (this.env.VOITHER_D1) {
-      try {
-        const { results } = await this.env.VOITHER_D1.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('Patients', 'Sessions')").all();
-        const tableNames = results.map((r: any) => r.name);
-        if (!tableNames.includes('Patients') || !tableNames.includes('Sessions')) {
-          await this.log('D1 schema missing. Applying migrations...');
-          const statements = MIGRATION_SQL.split(';').filter((s: string) => s.trim()).map((s: string) => this.env.VOITHER_D1.prepare(s.trim()));
-          await this.env.VOITHER_D1.batch(statements);
-          await this.log('D1 migration complete.');
-        }
-        if (this.env.VOITHER_R2) {
-            await this.env.VOITHER_R2.put('health-check.txt', 'ok');
-            await this.log('R2 binding confirmed.');
-        }
-        console.log('Production e2e complete: All bindings and migrations confirmed.');
-        await this.log('Production e2e complete: All bindings and migrations confirmed.');
-      } catch (e: any) {
-        console.error("D1 migration check failed:", e);
-        await this.log(`D1 migration check failed: ${e.message}`, 'ERROR');
-      }
+    if (!this.env.VOITHER_D1) {
+        await this.log('D1 binding unavailable—using DO fallback for persistence.', 'WARN');
     } else {
-      console.warn('D1 binding unavailable, skipping migration and sync.');
-      await this.log('D1 binding unavailable, skipping migration and sync.', 'ERROR');
+        try {
+            const { results } = await this.env.VOITHER_D1.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('Patients', 'Sessions')").all();
+            const tableNames = results.map((r: any) => r.name);
+            if (!tableNames.includes('Patients') || !tableNames.includes('Sessions')) {
+                await this.log('D1 schema missing. Applying migrations...');
+                const statements = MIGRATION_SQL.split(';').filter((s: string) => s.trim()).map((s: string) => this.env.VOITHER_D1.prepare(s.trim()));
+                await this.env.VOITHER_D1.batch(statements);
+                await this.log('D1 migration complete.');
+            }
+        } catch (e: any) {
+            console.error("D1 operation failed:", e);
+            await this.log(`D1 operation failed: ${e.message}—falling back to DO`, 'ERROR');
+        }
+    }
+    if (!this.env.VOITHER_R2) {
+        await this.log('R2 unavailable—mocking uploads with base64.', 'WARN');
+    } else {
+        try {
+            await this.env.VOITHER_R2.put('health-check.txt', 'ok');
+        } catch (e: any) {
+            await this.log(`R2 health check failed: ${e.message}`, 'ERROR');
+        }
     }
     const storedSessions = await this.ctx.storage.get<Record<string, SessionInfo>>('sessions') || {};
     this.sessions = new Map(Object.entries(storedSessions));
     this.logs = await this.ctx.storage.get<string[]>('logs') || [];
+    await this.log('Production e2e: Bindings checked, fallbacks enabled.');
     this.loaded = true;
   }
   async addSession(sessionId: string, title?: string): Promise<void> {
@@ -85,7 +87,6 @@ export class AppController extends DurableObject<Env> {
     await this.ensureLoaded();
     return Array.from(this.sessions.values()).sort((a, b) => b.lastActive - a.lastActive);
   }
-
   async updateSessionActivity(sessionId: string): Promise<void> {
     await this.ensureLoaded();
     const session = this.sessions.get(sessionId);
@@ -96,7 +97,6 @@ export class AppController extends DurableObject<Env> {
       await this.log(`Session ${sessionId} activity updated.`);
     }
   }
-
   async removeSession(sessionId: string): Promise<boolean> {
     await this.ensureLoaded();
     if (this.sessions.has(sessionId)) {

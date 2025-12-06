@@ -33,8 +33,22 @@
 	"observability": {
 		"enabled": true
 	},
+	"d1_databases": [
+		{
+			"binding": "VOITHER_D1",
+			"database_name": "voither-d1",
+			"database_id": "your-db-id"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "VOITHER_R2",
+			"bucket_name": "voither-videos"
+		}
+	],
 	"vars": {
-		"CF_AI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_ID/openai"
+		"CF_AI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT_ID/YOUR_GATEWAY_ID/openai",
+		"R2_PUBLIC_ID": "your-public-bucket-id"
 	},
 	"env": {
 		"production": {
@@ -42,7 +56,8 @@
 				"CF_AI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/YOUR_PROD_ACCOUNT_ID/YOUR_PROD_GATEWAY/openai"
 			},
 			"secrets": [
-				"CF_AI_API_KEY"
+				"CF_AI_API_KEY",
+				"ADMIN_KEY"
 			]
 		}
 	}

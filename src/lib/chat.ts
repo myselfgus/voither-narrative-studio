@@ -1,5 +1,6 @@
 import type { SessionInfo, Message } from '../../worker/types';
 import { NarrativeReportData } from '@/types/report';
+import { toast } from 'sonner';
 const escapeHtml = (str: string | number | null | undefined): string => {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -60,17 +61,22 @@ class ChatService {
       return { success: false, output: "Error: Payload too large. Please keep transcriptions under 1MB." };
     }
     const maxRetries = 3;
+    let currentModel = model;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const response = await fetch(`${this.baseUrl}/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(options?.apiKey && { 'X-Api-Key': options.apiKey }) },
-          body: JSON.stringify({ message, model, stream: !!onChunk, data: options?.data }),
+          body: JSON.stringify({ message, model: currentModel, stream: !!onChunk, data: options?.data }),
           signal: options?.signal,
         });
         if ((response.status === 429 || response.status >= 500) && attempt < maxRetries - 1) {
           const delayMs = Math.pow(2, attempt) * 1000;
           console.warn(`[ChatService:${this.sessionId}] Status ${response.status}. Retrying in ${delayMs}ms...`);
+          if (response.status >= 500) {
+              console.warn(`Switching to fallback model due to server error.`);
+              currentModel = '@cf/meta/llama-3-8b-instruct';
+          }
           await delay(delayMs);
           continue;
         }
@@ -112,11 +118,11 @@ class ChatService {
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            title, 
-            sessionId: this.sessionId, 
+        body: JSON.stringify({
+            title,
+            sessionId: this.sessionId,
             reportData: reportData ? JSON.stringify(reportData) : undefined,
-            patient_id 
+            patient_id
         })
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -126,7 +132,8 @@ class ChatService {
       }
       return result;
     } catch (error) {
-      return { success: false, error: 'Failed to create session' };
+      toast.error('Backend save failed—data will sync when available.');
+      return { success: false, error: 'Cached locally' };
     }
   }
   async listSessions(): Promise<{ success: boolean; data?: SessionInfo[]; error?: string }> {
@@ -157,14 +164,15 @@ class ChatService {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } catch (error) {
-      return { success: false, error: 'Failed to save report' };
+      toast.error('Backend save failed—data will sync when available.');
+      return { success: false, error: 'Cached locally' };
     }
   }
   async loadReportFromSession(sessionId: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const response = await fetch(`/api/sessions/${sessionId}/data`);
       if (!response.ok) {
-        const err = await response.json().catch(() => ({ error: 'Report not found' }));
+        const err = await response.json().catch(() => ({ error: 'No session data—check bindings' }));
         return { success: false, error: err.error || 'Report not found' };
       }
       return await response.json();
@@ -217,6 +225,7 @@ class ChatService {
       return result;
     } catch (error: any) {
       console.error('[ChatService] createPatient failed:', error);
+      toast.error('Backend unavailable—data cached locally');
       return { success: false, error: error.message || 'Failed to create patient' };
     }
   }

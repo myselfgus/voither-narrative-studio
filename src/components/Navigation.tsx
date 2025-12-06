@@ -42,7 +42,7 @@ const NavLink = ({ href, label, icon: Icon, isSubItem = false }: { href: string;
     </Link>
   );
 };
-const SidebarContent = ({ navItems }: { navItems: any[] }) => {
+const SidebarContent = ({ navItems, closeOnNavigate = false }: { navItems: any[]; closeOnNavigate?: boolean }) => {
   const location = useLocation();
   const defaultOpen = useMemo(() => {
     const openGroup = navItems.find(item => item.subItems?.some((sub: any) => location.pathname.startsWith(sub.href)));
@@ -66,12 +66,20 @@ const SidebarContent = ({ navItems }: { navItems: any[] }) => {
                 </AccordionTrigger>
                 <AccordionContent className="pl-2 pt-1 space-y-1">
                   {item.subItems.map((sub: any) => (
-                    <SheetClose asChild key={sub.href}><NavLink {...sub} isSubItem /></SheetClose>
+                    closeOnNavigate ? (
+                      <SheetClose asChild key={sub.href}><NavLink {...sub} isSubItem /></SheetClose>
+                    ) : (
+                      <NavLink {...sub} isSubItem key={sub.href} />
+                    )
                   ))}
                 </AccordionContent>
               </AccordionItem>
             ) : (
-              <SheetClose asChild key={item.href}><NavLink {...item} /></SheetClose>
+              closeOnNavigate ? (
+                <SheetClose asChild key={item.href}><NavLink {...item} /></SheetClose>
+              ) : (
+                <NavLink {...item} key={item.href} />
+              )
             )
           )}
         </Accordion>
@@ -114,7 +122,7 @@ export function Navigation() {
                 <Button variant="ghost" size="icon"><Menu className="h-6 w-6" /></Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-0 glass">
-                <SidebarContent navItems={navItems} />
+                <SidebarContent navItems={navItems} closeOnNavigate />
               </SheetContent>
             </Sheet>
           </div>

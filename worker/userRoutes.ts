@@ -32,34 +32,39 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         if (!c.env.VOITHER_D1) return c.json({ status: 'Unavailable' });
         try {
             await c.env.VOITHER_D1.prepare('SELECT 1').first();
-            console.log('Health check passed');
             return c.json({ status: 'Connected', lastPing: new Date().toISOString() });
-        } catch (e) {
+        } catch (e: any) {
             console.error("D1 Health Check Failed:", e);
-            return c.json({ status: 'Error' }, { status: 500 });
+            return c.json({ status: 'Error', error: e.message }, { status: 500 });
         }
     });
     app.get('/api/health/r2', async (c) => {
         if (!c.env.VOITHER_R2) return c.json({ status: 'Unavailable' });
         try {
-            await c.env.VOITHER_R2.head('health-check-key');
+            await c.env.VOITHER_R2.put('health-check.txt', 'ok');
+            await c.env.VOITHER_R2.head('health-check.txt');
             return c.json({ status: 'Connected', lastPing: new Date().toISOString() });
-        } catch (e) {
+        } catch (e: any) {
             console.error("R2 Health Check Failed:", e);
-            return c.json({ status: 'Error' }, { status: 500 });
+            return c.json({ status: 'Error', error: e.message }, { status: 500 });
         }
     });
     app.get('/api/health/ai', async (c) => {
         if (!c.env.CF_AI_BASE_URL || !c.env.CF_AI_API_KEY) return c.json({ status: 'Unavailable' });
         try {
-            const response = await fetch(`${c.env.CF_AI_BASE_URL}`, {
-                method: 'OPTIONS',
-                headers: { 'Authorization': `Bearer ${c.env.CF_AI_API_KEY}` }
+            const response = await fetch(c.env.CF_AI_BASE_URL, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${c.env.CF_AI_API_KEY}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: '@cf/meta/llama-3-8b-instruct',
+                    messages: [{ role: 'user', content: 'ping' }],
+                    max_tokens: 1
+                })
             });
             return c.json({ status: response.ok ? 'Connected' : 'Error', lastPing: new Date().toISOString() });
-        } catch (e) {
+        } catch (e: any) {
             console.error("AI Gateway Health Check Failed:", e);
-            return c.json({ status: 'Error' }, { status: 500 });
+            return c.json({ status: 'Error', error: e.message }, { status: 500 });
         }
     });
     // Session Management

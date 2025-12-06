@@ -26,7 +26,6 @@ This project provides an intuitive interface for JSON upload, LLM-driven content
 - Node.js (v18+) or Bun (recommended for faster setup).
 - Cloudflare account with Workers enabled.
 - Wrangler CLI installed and configured.
-- Configure environment variables: `CF_AI_BASE_URL` (your AI Gateway URL) and `CF_AI_API_KEY` (your API key).
 ### Installation
 1. Clone the repository:
    ```
@@ -43,22 +42,30 @@ This project provides an intuitive interface for JSON upload, LLM-driven content
      "CF_AI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/openai"
    }
    ```
-4. **Create and Bind D1 Database**:
-   ```sh
-   # Create the D1 database
-   npx wrangler d1 create voither-d1
-   # The command will output the binding configuration. Add it to your wrangler.jsonc file:
-   "d1_databases": [
-     {
-       "binding": "VOITHER_D1",
-       "database_name": "voither-d1",
-       "database_id": "your-database-id"
-     }
-   ]
-   # Run the database migrations
-   npx wrangler d1 execute voither-d1 --file=./worker/migrations.sql
-   ```
-5. Generate TypeScript types for Workers:
+### Database & Storage Setup
+1.  **Create D1 Database**:
+    ```sh
+    # Create the D1 database
+    wrangler d1 create voither-d1
+    # The command will output the binding configuration. Add the `database_id` to your wrangler.jsonc file.
+    # Run the database migrations
+    wrangler d1 execute voither-d1 --file=./worker/migrations.sql
+    ```
+2.  **Create R2 Bucket**:
+    ```sh
+    # Create the R2 bucket
+    wrangler r2 bucket create voither-videos
+    # Make the bucket public for video playback (optional, requires custom domain for production)
+    # Update wrangler.jsonc with the bucket_name.
+    ```
+3.  **Set Production Secrets**:
+    ```sh
+    # Set your AI Gateway API key
+    wrangler secret put CF_AI_API_KEY --env production
+    # Set a key for accessing the admin terminal
+    wrangler secret put ADMIN_KEY --env production
+    ```
+4. Generate TypeScript types for Workers:
    ```
    bun run cf-typegen
    ```
@@ -69,14 +76,8 @@ Start the development server:
 bun run dev
 ```
 The app will be available at `http://localhost:3000`.
-### API Endpoints
-- `POST /api/chat/:sessionId/chat`: Send orchestration prompt with JSON data.
-- `GET /api/sessions`: List active sessions from Durable Object.
-- `GET /api/patients`: List all patients from D1.
-- `GET /api/patients/:id`: Get a specific patient and their sessions from D1.
-Sessions are managed via Durable Objects (AppController) and persisted to D1.
 ## Deployment
-Deploy to Cloudflare Workers for production:
+Deploy to Cloudflare Workers for development preview:
 1. Ensure `wrangler.jsonc` is configured with your account ID and bindings.
 2. Build the frontend:
    ```
@@ -84,48 +85,22 @@ Deploy to Cloudflare Workers for production:
    ```
 3. Deploy:
    ```
-   bun run deploy
+   wrangler deploy
    ```
 ### Production Deployment
-For a production environment, it's recommended to use secrets for sensitive data like API keys.
-1.  **Set Secret**:
-    ```sh
-    npx wrangler secret put CF_AI_API_KEY --env production
-    ```
-2.  **Deploy to Production**:
-    ```sh
-    bun run deploy:prod
-    ```
+For a production environment, use the `--env production` flag to use secrets.
+```sh
+wrangler deploy --env production
+```
 ### E2E Flow Simulation
 To test the end-to-end flow:
-1.  Navigate to the **Builder** page.
-2.  Fill in the form and start an analysis.
-3.  Once complete, the session is saved automatically to D1.
-4.  Navigate to the **Patients** page to see the newly created patient record.
-5.  Click "View Dashboard" to see the session associated with that patient.
-6.  Export the PDF from the dashboard or the exports page.
+1.  **JSON Flow**: Navigate to the **PDF Generator**. Upload a valid JSON. The patient should be created/updated in D1. Click "Enrich" (or "Preview Raw"). Export the PDF. Check the **Patients** dashboard to see the new record.
+2.  **Video Flow**: Navigate to the **Video Wall**. Create a new patient if needed. Start a call, then hang up. The recording will be uploaded to R2, and a session linking to it will be created in D1. View the recording in the **Patient Dashboard**.
 ## Code Quality
 Run ESLint to check for code quality issues:
 ```sh
 bun run lint
 ```
-To automatically fix issues:
-```sh
-bun run lint:fix
-```
 [cloudflarebutton]
-### Environment Variables in Production
-Set via Cloudflare Dashboard (Workers > Settings > Variables & Secrets):
-- `CF_AI_BASE_URL`: Your AI Gateway endpoint.
-- `CF_AI_API_KEY`: Securely stored as a secret.
-### Monitoring
-Use Cloudflare's built-in observability for Worker logs and metrics. AI usage is rate-limited; monitor via the dashboard.
-## Contributing
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/amazing-feature`).
-3. Commit changes (`git commit -m 'Add amazing feature'`).
-4. Push to the branch (`git push origin feature/amazing-feature`).
-5. Open a Pull Request.
-Follow TypeScript and ESLint rules. Focus on visual excellence and responsive design.
 ## License
 MIT License. See [LICENSE](LICENSE) for details.
