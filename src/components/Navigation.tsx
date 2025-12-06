@@ -49,7 +49,7 @@ export function Navigation() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link to="/" className="flex items-center gap-2">
+            <Link to="/" className="flex items-center gap-2" aria-label="Navigate to Dashboard">
               <span className="font-brand font-bold text-2xl text-text-primary tracking-tighter">VOITHER</span>
               <span className="font-display font-light text-text-secondary hidden sm:inline">HealthOS</span>
             </Link>
@@ -78,9 +78,9 @@ export function Navigation() {
                     }}
                     className="flex flex-col gap-2 p-4 pt-10"
                   >
-                    {navItems.map(item => (
+                    {navItems.map((item, index) => (
                       <SheetClose asChild key={item.href}>
-                         <motion.div variants={{ hidden: { opacity: 0, x: 20 }, visible: { opacity: 1, x: 0 } }}>
+                         <motion.div variants={{ hidden: { opacity: 0, x: 20 }, visible: { opacity: 1, x: 0 } }} transition={{ delay: index * 0.07 }}>
                             <NavLink {...item} isMobile />
                          </motion.div>
                       </SheetClose>

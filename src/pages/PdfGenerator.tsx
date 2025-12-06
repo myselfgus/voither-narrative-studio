@@ -16,6 +16,7 @@ import { getJsonEnrichPrompt } from '@/lib/llmPrompts';
 import { openPrintPreview } from '@/lib/pdf';
 import * as z from 'zod';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useIsMobile } from '@/hooks/use-mobile';
 const ReportEditor = lazy(() => import('@/components/ReportEditor'));
 const reportSchema = z.object({
   metadata: z.object({
@@ -36,6 +37,7 @@ const PdfGenerator: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [showHtml, setShowHtml] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
   const handleJsonParsed = (jsonData: any) => {
     if (JSON.stringify(jsonData).length > 2 * 1024 * 1024) {
       toast.error('File too large (max 2MB)');
@@ -47,7 +49,7 @@ const PdfGenerator: React.FC = () => {
       setEnrichedReport(result.data as unknown as NarrativeReportData);
       toast.success("JSON validado e carregado com sucesso.");
     } else {
-      toast.error("Esquema JSON inválido.", {
+      toast.error("Esquema JSON inv��lido.", {
         description: result.error.format()._errors.join('; '),
       });
       setRawJson(null);
@@ -135,7 +137,7 @@ const PdfGenerator: React.FC = () => {
             <Button onClick={handleExportPdf} disabled={!enrichedReport}><FileDown className="w-4 h-4 mr-2" /> Exportar PDF</Button>
           </div>
         </div>
-        <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh] flex-col md:flex-row">
+        <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"} className="rounded-lg border min-h-[80vh]">
           <ResizablePanel defaultSize={40} minSize={30}>
             <ScrollArea className="h-full"><div className="p-4 space-y-4">
               <Card><CardHeader><CardTitle>1. Upload de JSON</CardTitle><CardDescription>Faça o upload de um arquivo JSON com a estrutura do relatório.</CardDescription></CardHeader><CardContent><UploadJson onJsonParsed={handleJsonParsed} /></CardContent></Card>

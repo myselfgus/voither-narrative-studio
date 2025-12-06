@@ -166,6 +166,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         if (!file || file.size > 50 * 1024 * 1024) { // 50MB limit
             return c.json({ success: false, error: 'Invalid file or file too large' }, 400);
         }
+        const buffer = await file.arrayBuffer();
         if (!c.env.VOITHER_R2 || !c.env.R2_PUBLIC_ID) {
             console.warn("R2 binding not available. Falling back to base64 data URL.");
             const base64 = await fileToBase64(file);
@@ -173,7 +174,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         }
         try {
             const key = `video-calls/${patientId}/${crypto.randomUUID()}.webm`;
-            await c.env.VOITHER_R2.put(key, file.stream(), {
+            await c.env.VOITHER_R2.put(key, buffer, {
                 httpMetadata: { contentType: file.type },
             });
             const publicUrl = `https://pub-${c.env.R2_PUBLIC_ID}.r2.dev/${key}`;

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Mic, StopCircle, UserPlus, Loader2, Video, VideoOff, Search, PhoneOff, ScreenShare, ScreenShareOff, MicOff } from 'lucide-react';
+import { Mic, UserPlus, Loader2, Video, VideoOff, Search, PhoneOff, ScreenShare, ScreenShareOff, MicOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { chatService } from '@/lib/chat';
 import { useDebounce } from 'react-use';
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 type CallState = 'idle' | 'calling' | 'connected' | 'ended';
 interface Patient {
   id: string;
@@ -62,9 +63,9 @@ const Recordings: React.FC = () => {
     }
     setCallState('calling');
     try {
-      const { roomId, iceServers } = await fetch(`/api/webrtc/join?sessionId=${localSessionIdRef.current}`).then(r => r.json());
-      roomIdRef.current = roomId;
-      pcRef.current = new RTCPeerConnection({ iceServers });
+      const res = await fetch(`/api/webrtc/join?sessionId=${localSessionIdRef.current}`).then(r => r.json());
+      roomIdRef.current = res.roomId;
+      pcRef.current = new RTCPeerConnection({ iceServers: res.iceServers });
       pcRef.current.onicecandidate = e => {
         if (e.candidate) {
           fetch(`/api/webrtc/signal/${roomIdRef.current}`, {
@@ -199,18 +200,18 @@ const Recordings: React.FC = () => {
             <CardContent className="space-y-4">
               <motion.div className="grid grid-cols-1 md:grid-cols-2 gap-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
                 <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
-                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Local</CardTitle></CardHeader><CardContent className="p-0"><video ref={localVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay muted playsInline aria-label="Local video feed" /></CardContent></Card>
+                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Local</CardTitle></CardHeader><CardContent className="p-0">{callState === 'idle' ? <Skeleton className="w-full aspect-video rounded-b-md" /> : <video ref={localVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay muted playsInline aria-label="Local video feed" />}</CardContent></Card>
                 </motion.div>
                 <motion.div variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
-                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Remote</CardTitle></CardHeader><CardContent className="p-0"><video ref={remoteVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay playsInline aria-label="Remote video feed" /></CardContent></Card>
+                  <Card><CardHeader className="p-2"><CardTitle className="text-sm">Remote</CardTitle></CardHeader><CardContent className="p-0">{callState === 'idle' ? <Skeleton className="w-full aspect-video rounded-b-md" /> : <video ref={remoteVideoRef} className="w-full aspect-video bg-black rounded-b-md" autoPlay playsInline aria-label="Remote video feed" />}</CardContent></Card>
                 </motion.div>
               </motion.div>
               <div className="flex flex-wrap justify-center gap-2 p-2 border rounded-lg bg-surface-subtle">
                 {callState === 'idle' && <Button onClick={startCall} disabled={!selectedPatient} className="flex-1"><Video className="w-4 h-4 mr-2" /> Start Video Call</Button>}
                 {(callState === 'calling' || callState === 'connected') && (
                   <>
-                    <Button variant={isAudioMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !isAudioMuted); setIsAudioMuted(!isAudioMuted); }}><MicOff className={isAudioMuted ? '' : 'hidden'} /><Mic className={isAudioMuted ? 'hidden' : ''} /></Button>
-                    <Button variant={isVideoMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = !isVideoMuted); setIsVideoMuted(!isVideoMuted); }}><VideoOff className={isVideoMuted ? '' : 'hidden'} /><Video className={isVideoMuted ? 'hidden' : ''} /></Button>
+                    <Button variant={isAudioMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !isAudioMuted); setIsAudioMuted(!isAudioMuted); }}><MicOff className={!isAudioMuted ? 'hidden' : ''} /><Mic className={isAudioMuted ? 'hidden' : ''} /></Button>
+                    <Button variant={isVideoMuted ? "destructive" : "outline"} size="icon" onClick={() => { localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = !isVideoMuted); setIsVideoMuted(!isVideoMuted); }}><VideoOff className={!isVideoMuted ? 'hidden' : ''} /><Video className={isVideoMuted ? 'hidden' : ''} /></Button>
                     <Button variant="outline" size="icon" disabled><ScreenShare /></Button>
                     <Button onClick={hangUp} variant="destructive" className="flex-1"><PhoneOff className="w-4 h-4 mr-2" /> Hang Up</Button>
                   </>
