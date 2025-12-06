@@ -7,13 +7,15 @@ import { toast } from 'sonner';
 import { chatService } from '@/lib/chat';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { User, ArrowLeft, Edit, Archive } from 'lucide-react';
+import { User, ArrowLeft, Edit, Archive, Mic } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { NarrativeReportData } from '@/types/report';
 import { generateCoverThumbnail } from '@/lib/pdf';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { generateReportHtml } from '@/lib/reportHtml';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 interface Patient {
   id: string;
   patient_id: string;
@@ -27,6 +29,11 @@ interface Session {
   title: string;
   last_active: number;
   report: string; // JSON string
+}
+interface Recording {
+  url: string;
+  duration: number;
+  timestamp: number;
 }
 const SessionThumbnail: React.FC<{ reportData: NarrativeReportData | null }> = ({ reportData }) => {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
@@ -48,7 +55,7 @@ const SessionThumbnail: React.FC<{ reportData: NarrativeReportData | null }> = (
       {thumbnailUrl ? (
         <img src={thumbnailUrl} alt={`Preview of ${reportData?.reportTitle}`} className="w-full h-full object-cover" />
       ) : (
-        <div className="animate-pulse w-full h-full bg-surface-muted" />
+        <Skeleton className="w-full h-full" />
       )}
     </div>
   );
@@ -57,6 +64,7 @@ const PatientDashboard: React.FC = () => {
   const { patientId } = useParams<{ patientId: string }>();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const fetchPatientData = useCallback(async () => {
     if (!patientId) return;
@@ -65,6 +73,14 @@ const PatientDashboard: React.FC = () => {
     if (res.success && res.data) {
       setPatient(res.data.patient);
       setSessions(res.data.sessions);
+      const allRecordings = (res.data.sessions as Session[]).flatMap(s => {
+        try {
+          return JSON.parse(s.report)?.recordings || [];
+        } catch {
+          return [];
+        }
+      });
+      setRecordings(allRecordings);
     } else {
       toast.error('Failed to load patient data.', { description: res.error });
     }
@@ -82,25 +98,34 @@ const PatientDashboard: React.FC = () => {
       try {
         const reportContainer = JSON.parse(session.report);
         const reportData = reportContainer.report;
-        if (!reportData) continue;
-        const htmlString = generateReportHtml(reportData);
-        const pdfBlob = await html2pdf().from(htmlString).set({
-          margin: 0,
-          filename: `voither-report-${reportData.metadata.paciente_id}-${session.session_id}.pdf`,
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        }).output('blob');
-        zip.file(`session_${session.session_id}.pdf`, pdfBlob);
+        if (reportData) {
+          const htmlString = generateReportHtml(reportData);
+          const pdfBlob = await html2pdf().from(htmlString).set({
+            margin: 0,
+            filename: `voither-report-${reportData.metadata.paciente_id}-${session.session_id}.pdf`,
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+          }).output('blob');
+          zip.file(`session_${session.session_id}/report.pdf`, pdfBlob);
+        }
+        if (reportContainer.recordings) {
+          reportContainer.recordings.forEach((rec: Recording, index: number) => {
+            const base64Data = rec.url.split(',')[1];
+            if (base64Data) {
+              zip.file(`session_${session.session_id}/recording_${index + 1}.webm`, base64Data, { base64: true });
+            }
+          });
+        }
       } catch (error) {
         console.error(`Failed to process session ${session.session_id} for zip export.`, error);
       }
     }
     zip.generateAsync({ type: 'blob' }).then(content => {
       saveAs(content, `voither-patient-${patient?.patient_id}-exports.zip`);
-      toast.success("All reports downloaded.", { id: toastId });
+      toast.success("All reports and recordings downloaded.", { id: toastId });
     });
   };
   if (loading) {
-    return <AppLayout><div className="text-center p-12">Loading patient data...</div></AppLayout>;
+    return <AppLayout><div className="text-center p-12"><Skeleton className="h-10 w-64 mx-auto mb-4" /><Skeleton className="h-6 w-48 mx-auto" /></div></AppLayout>;
   }
   if (!patient) {
     return <AppLayout><div className="text-center p-12">Patient not found.</div></AppLayout>;
@@ -117,12 +142,7 @@ const PatientDashboard: React.FC = () => {
       </div>
       <h2 className="text-2xl font-bold font-display mb-6">Sessions ({sessions.length})</h2>
       {sessions.length > 0 ? (
-        <motion.div
-          className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-          initial="hidden"
-          animate="visible"
-          variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
-        >
+        <motion.div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
           {sessions.map(session => {
             let reportData: NarrativeReportData | null = null;
             try {
@@ -146,6 +166,35 @@ const PatientDashboard: React.FC = () => {
           <Button asChild className="mt-4"><Link to="/builder">Create New Session</Link></Button>
         </div>
       )}
+      <Card className="mt-8">
+        <CardHeader><CardTitle>Recordings ({recordings.length})</CardTitle><CardDescription>All audio recordings associated with this patient.</CardDescription></CardHeader>
+        <CardContent className="space-y-4">
+          {recordings.length > 0 ? (
+            <motion.div className="space-y-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
+              {recordings.map((rec, i) => (
+                <motion.div key={i} variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }}>
+                  <Card>
+                    <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4">
+                      <audio src={rec.url} controls className="w-full sm:w-auto sm:flex-grow" />
+                      <div className="flex items-center gap-2">
+                        <Select defaultValue="1" onValueChange={v => { const audio = document.querySelector(`audio[src="${rec.url}"]`) as HTMLAudioElement; if (audio) audio.playbackRate = parseFloat(v); }}>
+                          <SelectTrigger className="w-[80px]"><SelectValue /></SelectTrigger>
+                          <SelectContent><SelectItem value="0.5">0.5x</SelectItem><SelectItem value="1">1x</SelectItem><SelectItem value="1.5">1.5x</SelectItem></SelectContent>
+                        </Select>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ))}
+            </motion.div>
+          ) : (
+            <div className="text-center py-8 border-2 border-dashed rounded-lg">
+              <h3 className="text-lg font-medium text-muted-foreground">No recordings found.</h3>
+              <Button asChild className="mt-4"><Link to="/recordings"><Mic className="w-4 h-4 mr-2" />Record First Audio</Link></Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </AppLayout>
   );
 };

@@ -197,5 +197,23 @@ class ChatService {
       return { success: false, error: 'Failed to get patient details' };
     }
   }
+  async createPatient(patientData: { patient_id: string; name: string; context?: string; crm: string; metadata?: any }): Promise<{ success: boolean; data?: { id: string }; error?: string }> {
+    try {
+      const response = await fetch('/api/patients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patientData)
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || `HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      return result;
+    } catch (error: any) {
+      console.error('[ChatService] createPatient failed:', error);
+      return { success: false, error: error.message || 'Failed to create patient' };
+    }
+  }
 }
 export const chatService = new ChatService();

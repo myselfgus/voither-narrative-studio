@@ -99,12 +99,10 @@ export class AppController extends DurableObject<Env> {
       const patientId = inputs.patientId;
       const crm = inputs.crm;
       if (patientId && crm) {
-        // 1. Upsert Patient
-        const patientUUID = crypto.randomUUID();
+        // 1. Find Patient ID from D1
         const patientResult = await this.env.VOITHER_D1.prepare(
-          `INSERT INTO Patients (id, patient_id, name, context, crm, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, unixepoch())
-           ON CONFLICT(patient_id, crm) DO UPDATE SET name=excluded.name, context=excluded.context, updated_at=unixepoch() RETURNING id`
-        ).bind(patientUUID, patientId, inputs.professionalName || 'N/A', inputs.context || '', crm).first<{ id: string }>();
+          `SELECT id FROM Patients WHERE patient_id = ?1 AND crm = ?2`
+        ).bind(patientId, crm).first<{ id: string }>();
         const dbPatientId = patientResult?.id;
         if (dbPatientId) {
           // 2. Upsert Session
