@@ -85,7 +85,8 @@ function runSetupCommands() {
     "bun add jszip",
     "bun install file-saver",
     "bun add file-saver",
-    "bun add -d @types/file-saver"
+    "bun add -d @types/file-saver",
+    "bun add xterm @xterm/addon-fit"
 ];
     
     if (commands.length === 0) {
