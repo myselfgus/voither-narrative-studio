@@ -32,7 +32,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const body = await c.req.json().catch(() => ({}));
         const { title, sessionId: providedSessionId, reportData } = body;
         const sessionId = providedSessionId || crypto.randomUUID();
-        await registerSession(c.env, sessionId, title || 'Novo Relat��rio');
+        await registerSession(c.env, sessionId, title || 'Novo Relatório');
         if (reportData) {
             const controller = getAppController(c.env);
             await controller.setReportData(sessionId, reportData);
@@ -71,7 +71,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     app.get('/api/patients', async (c) => {
         if (!c.env.VOITHER_D1) {
             console.error('D1 binding VOITHER_D1 not found.');
-            return c.json({ success: false, error: 'Database not configured' }, { status: 500 });
+            return c.json({ success: false, error: 'Database connection unavailable—check bindings.' }, { status: 503 });
         }
         try {
             const { results } = await c.env.VOITHER_D1.prepare(
@@ -88,7 +88,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     app.get('/api/patients/:id', async (c) => {
         if (!c.env.VOITHER_D1) {
             console.error('D1 binding VOITHER_D1 not found.');
-            return c.json({ success: false, error: 'Database not configured' }, { status: 500 });
+            return c.json({ success: false, error: 'Database connection unavailable—check bindings.' }, { status: 503 });
         }
         const patientId = c.req.param('id');
         try {
@@ -103,6 +103,32 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         } catch (e: any) {
             console.error(`Failed to fetch patient ${patientId}:`, e);
             return c.json({ success: false, error: 'Database query failed' }, { status: 500 });
+        }
+    });
+    app.post('/api/patients', async (c) => {
+        if (!c.env.VOITHER_D1) {
+            return c.json({ success: false, error: 'Database connection unavailable—check bindings.' }, 503);
+        }
+        const { patient_id, name, context, crm, metadata } = await c.req.json();
+        if (!patient_id || !name || !crm) {
+            return c.json({ success: false, error: 'Required fields: patient_id, name, crm' }, 400);
+        }
+        try {
+            const uuid = crypto.randomUUID();
+            const result = await c.env.VOITHER_D1.prepare(
+                `INSERT INTO Patients (id, patient_id, name, context, crm, metadata, created_at, updated_at) 
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch(), unixepoch()) 
+                 ON CONFLICT(patient_id, crm) DO UPDATE SET name=excluded.name, context=excluded.context, metadata=excluded.metadata, updated_at=unixepoch() 
+                 RETURNING id`
+            ).bind(uuid, patient_id, name, context || '', crm, JSON.stringify(metadata || {})).first<{ id: string }>();
+            if (result?.id) {
+                return c.json({ success: true, data: { id: result.id } });
+            } else {
+                return c.json({ success: false, error: 'Failed to create/update patient' }, 500);
+            }
+        } catch (e) {
+            console.error('D1 insert error:', e);
+            return c.json({ success: false, error: 'Database error' }, 500);
         }
     });
     // API Key Management
