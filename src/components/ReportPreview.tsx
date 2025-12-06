@@ -10,6 +10,15 @@ import {
   Section,
   SubSection
 } from './report/DocumentComponents';
+const escapeHtml = (str: string | number | null | undefined): string => {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
 export const Header = ({ patientId, date }: { patientId: string; date: string }) => (
   <header className="border-b border-border pb-4 mb-12 flex justify-between items-end print:mb-8 print-break-inside-avoid">
     <div className="flex flex-col">
@@ -80,12 +89,12 @@ export const CoverPage: React.FC<{ data: NarrativeReportData }> = ({ data }) => 
 const BlockRenderer: React.FC<{ block: ContentBlock }> = ({ block }) => {
   switch (block.type) {
     case 'paragraph':
-      return <BodyParagraph>{Array.isArray(block.content) ? block.content.join(' ') : block.content}</BodyParagraph>;
+      return <BodyParagraph>{escapeHtml(Array.isArray(block.content) ? block.content.join(' ') : block.content)}</BodyParagraph>;
     case 'quote':
       return (
         <div className="my-8 pl-6 border-l-4 border-text-primary py-2">
           <p className="font-sans text-xl font-light italic text-text-primary leading-relaxed">
-            "{block.content}"
+            "{escapeHtml(block.content)}"
           </p>
         </div>
       );
@@ -93,7 +102,7 @@ const BlockRenderer: React.FC<{ block: ContentBlock }> = ({ block }) => {
       return (
         <div className="my-6 pl-4">
           {Array.isArray(block.content) && block.content.map((item, i) => (
-            <BodyListItem key={i}>{item}</BodyListItem>
+            <BodyListItem key={i}>{escapeHtml(item)}</BodyListItem>
           ))}
         </div>
       );
@@ -119,7 +128,7 @@ interface ReportPreviewProps {
   data: NarrativeReportData | null;
   reportRef: React.RefObject<HTMLDivElement>;
 }
-const ReportPreview: React.FC<ReportPreviewProps> = ({ data, reportRef }) => {
+const ReportPreviewComponent: React.FC<ReportPreviewProps> = ({ data, reportRef }) => {
   if (!data) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-surface-muted rounded-lg">
@@ -128,7 +137,7 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({ data, reportRef }) => {
     );
   }
   return (
-    <div ref={reportRef} className="max-w-[210mm] mx-auto bg-surface shadow-2xl print:shadow-none print:max-w-none">
+    <div ref={reportRef} className="max-w-[210mm] mx-auto bg-surface shadow-2xl print:shadow-none print:max-w-none" aria-label="Preview of clinical report" role="img">
       <div className="print-break-after-page">
         <CoverPage data={data} />
       </div>
@@ -144,4 +153,4 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({ data, reportRef }) => {
     </div>
   );
 };
-export default ReportPreview;
+export default React.memo(ReportPreviewComponent, (prev, next) => JSON.stringify(prev.data) === JSON.stringify(next.data));

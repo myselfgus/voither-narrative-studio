@@ -1,5 +1,6 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
+import { useDebounce } from 'react-use';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,24 +11,26 @@ import { Bot, FileDown, FileText, Loader2, Save, Eye, Code } from 'lucide-react'
 import UploadJson from '@/components/UploadJson';
 import PdfReportRenderer from '@/components/PdfReportRenderer';
 import { generateReportHtml } from '@/lib/reportHtml';
-import ReportEditor from '@/components/ReportEditor';
 import { NarrativeReportData } from '@/types/report';
 import { chatService } from '@/lib/chat';
 import { getJsonEnrichPrompt } from '@/lib/llmPrompts';
-import { exportToPdf, openPrintPreview } from '@/lib/pdf';
+import { openPrintPreview } from '@/lib/pdf';
 import * as z from 'zod';
+import { Skeleton } from '@/components/ui/skeleton';
+const ReportEditor = lazy(() => import('@/components/ReportEditor'));
 const reportSchema = z.object({
   metadata: z.object({
-    paciente_id: z.string(),
-    contexto: z.string(),
-    data_analise: z.string(),
-    medico_responsavel: z.string(),
-    crm: z.string(),
+    paciente_id: z.string().min(1, "paciente_id is required"),
+    contexto: z.string().min(1, "contexto is required"),
+    data_analise: z.string().min(1, "data_analise is required"),
+    medico_responsavel: z.string().min(1, "medico_responsavel is required"),
+    crm: z.string().min(1, "crm is required"),
   }).passthrough(),
-  reportTitle: z.string(),
-  keyQuote: z.string(),
-  sections: z.array(z.any()),
+  reportTitle: z.string().min(1, "reportTitle is required"),
+  keyQuote: z.string().min(1, "keyQuote is required"),
+  sections: z.array(z.any()).min(1, "sections array must not be empty"),
 });
+const escapeHtml = (str: string) => str.replace(/[&<>"']/g, (match) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[match]!));
 const PdfGenerator: React.FC = () => {
   const [rawJson, setRawJson] = useState<any | null>(null);
   const [enrichedReport, setEnrichedReport] = useState<NarrativeReportData | null>(null);
@@ -43,7 +46,7 @@ const PdfGenerator: React.FC = () => {
       toast.success("JSON validado e carregado com sucesso.");
     } else {
       toast.error("Esquema JSON inválido.", {
-        description: "O JSON não corresponde à estrutura NarrativeReportData necessária.",
+        description: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; '),
       });
       setRawJson(null);
       setEnrichedReport(null);
@@ -60,7 +63,8 @@ const PdfGenerator: React.FC = () => {
     const { success, output } = await chatService.sendMessage(prompt, 'voither');
     if (success && output) {
       try {
-        const enrichedData = JSON.parse(output);
+        const sanitizedOutput = escapeHtml(output);
+        const enrichedData = JSON.parse(sanitizedOutput);
         const result = reportSchema.safeParse(enrichedData);
         if (result.success) {
           setEnrichedReport(result.data as unknown as NarrativeReportData);
@@ -88,9 +92,15 @@ const PdfGenerator: React.FC = () => {
       toast.error("Falha ao salvar a sessão.");
     }
   }, [enrichedReport]);
-  const handleExportPdf = () => {
+  useDebounce(() => {
+    if (enrichedReport) {
+      handleSaveSession();
+    }
+  }, 10000, [enrichedReport, handleSaveSession]);
+  const handleExportPdf = async () => {
     if (enrichedReport) {
       toast.info("Gerando PDF...");
+      const { exportToPdf } = await import('@/lib/pdf');
       const htmlString = generateReportHtml(enrichedReport);
       exportToPdf(htmlString, `voither-report-${enrichedReport.metadata.paciente_id}`);
     } else {
@@ -124,7 +134,7 @@ const PdfGenerator: React.FC = () => {
             </Button>
           </div>
         </div>
-        <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh]">
+        <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh] flex-col md:flex-row">
           <ResizablePanel defaultSize={40} minSize={30}>
             <ScrollArea className="h-full">
               <div className="p-4 space-y-4">

@@ -44,23 +44,17 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         if (!deleted) return c.json({ success: false, error: 'Session not found' }, { status: 404 });
         return c.json({ success: true, data: { deleted: true } });
     });
-    // Get report data for a session
     app.get('/api/sessions/:sessionId/data', async (c) => {
         const sessionId = c.req.param('sessionId');
         const controller = getAppController(c.env);
         const data = await controller.getReportData(sessionId);
         if (data === null) return c.json({ success: false, error: 'Report data not found' }, { status: 404 });
         try {
-            // Attempt to parse to ensure it's valid JSON before sending
-            JSON.parse(data);
             return c.json({ success: true, data: JSON.parse(data) });
         } catch (e) {
-            // If it's not JSON, it might be legacy string data.
-            // For robustness, we can wrap it or handle it, but for now, we'll return an error for consistency.
             return c.json({ success: false, error: 'Stored data is not valid JSON.' }, { status: 500 });
         }
     });
-    // Update report data for a session
     app.put('/api/sessions/:sessionId/data', async (c) => {
         const sessionId = c.req.param('sessionId');
         const { data } = await c.req.json();
@@ -71,5 +65,24 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const controller = getAppController(c.env);
         await controller.setReportData(sessionId, dataString);
         return c.json({ success: true });
+    });
+    // API Key Management
+    app.post('/api/user/apikey', async (c) => {
+        const { sessionId, key } = await c.req.json();
+        if (!sessionId || !key) {
+            return c.json({ success: false, error: 'sessionId and key are required' }, { status: 400 });
+        }
+        const controller = getAppController(c.env);
+        const result = await controller.setApiKey(sessionId, key);
+        return c.json(result, result.success ? 200 : 400);
+    });
+    app.get('/api/user/apikey', async (c) => {
+        const sessionId = c.req.query('sessionId');
+        if (!sessionId) {
+            return c.json({ success: false, error: 'sessionId is required' }, { status: 400 });
+        }
+        const controller = getAppController(c.env);
+        const key = await controller.getApiKey(sessionId, true); // Always masked for client
+        return c.json({ success: true, data: { key } });
     });
 }

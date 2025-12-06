@@ -1,10 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { SessionInfo } from './types';
 import type { Env } from './core-utils';
-// 🤖 AI Extension Point: Add session management features
+// ��� AI Extension Point: Add session management features
 export class AppController extends DurableObject<Env> {
   private sessions = new Map<string, SessionInfo>();
   private reports = new Map<string, string>();
+  private apiKeys = new Map<string, string>(); // Store API keys per session
   private loaded = false;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -15,6 +16,8 @@ export class AppController extends DurableObject<Env> {
       this.sessions = new Map(Object.entries(storedSessions));
       const storedReports = await this.ctx.storage.get<Record<string, string>>('reports') || {};
       this.reports = new Map(Object.entries(storedReports));
+      const storedApiKeys = await this.ctx.storage.get<Record<string, string>>('apiKeys') || {};
+      this.apiKeys = new Map(Object.entries(storedApiKeys));
       this.loaded = true;
     }
   }
@@ -23,6 +26,9 @@ export class AppController extends DurableObject<Env> {
   }
   private async persistReports(): Promise<void> {
     await this.ctx.storage.put('reports', Object.fromEntries(this.reports));
+  }
+  private async persistApiKeys(): Promise<void> {
+    await this.ctx.storage.put('apiKeys', Object.fromEntries(this.apiKeys));
   }
   async addSession(sessionId: string, title?: string): Promise<void> {
     await this.ensureLoaded();
@@ -39,9 +45,11 @@ export class AppController extends DurableObject<Env> {
     await this.ensureLoaded();
     const deleted = this.sessions.delete(sessionId);
     this.reports.delete(sessionId);
+    this.apiKeys.delete(sessionId);
     if (deleted) {
       await this.persistSessions();
       await this.persistReports();
+      await this.persistApiKeys();
     }
     return deleted;
   }
@@ -73,9 +81,8 @@ export class AppController extends DurableObject<Env> {
   }
   async setReportData(sessionId: string, data: string): Promise<void> {
     await this.ensureLoaded();
-    // Ensure session exists before setting data
     if (!this.sessions.has(sessionId)) {
-      await this.addSession(sessionId, 'Novo Relatório');
+      await this.addSession(sessionId, 'Novo Relat��rio');
     }
     this.reports.set(sessionId, data);
     await this.persistReports();
@@ -83,5 +90,23 @@ export class AppController extends DurableObject<Env> {
   async getReportData(sessionId: string): Promise<string | null> {
     await this.ensureLoaded();
     return this.reports.get(sessionId) || null;
+  }
+  async setApiKey(sessionId: string, key: string): Promise<{ success: boolean; message?: string }> {
+    await this.ensureLoaded();
+    if (typeof key !== 'string' || !key.startsWith('sk-') || key.length < 20) {
+      return { success: false, message: 'Invalid API key format.' };
+    }
+    this.apiKeys.set(sessionId, key); // In a real app, encrypt this: await this.env.crypto.subtle.encrypt(...)
+    await this.persistApiKeys();
+    return { success: true };
+  }
+  async getApiKey(sessionId: string, masked: boolean = true): Promise<string | null> {
+    await this.ensureLoaded();
+    const key = this.apiKeys.get(sessionId);
+    if (!key) return null;
+    if (masked) {
+      return `${key.substring(0, 5)}...${key.substring(key.length - 4)}`;
+    }
+    return key; // For internal use by the agent
   }
 }
