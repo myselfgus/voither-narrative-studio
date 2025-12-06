@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, FileJson, FileText, Archive } from 'lucide-react';
+import { Download, FileJson, FileText, Image as ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -9,110 +9,109 @@ import { chatService } from '@/lib/chat';
 import type { SessionInfo } from '../../worker/types';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import { generateCoverThumbnail } from '@/lib/pdf';
+import { exportToPdf } from '@/lib/pdf';
 import { compileFromStages } from '@/lib/reportRenderer';
-import { generateReportHtml } from '@/lib/reportHtml';
-import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let isMounted = true;
-    const generateThumbnail = async () => {
-      try {
-        const res = await chatService.loadReportFromSession(session.id);
-        if (isMounted && res.success && res.data) {
-          const reportData = res.data.report || compileFromStages(res.data.stages, res.data.inputs);
-          if (reportData) {
-            const url = await generateCoverThumbnail(reportData);
-            setThumbnailUrl(url);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to generate thumbnail for session:", session.id, error);
-      }
-    };
-    generateThumbnail();
-    return () => { isMounted = false; };
-  }, [session.id]);
-  return (
-    <div className="aspect-[3/4] bg-surface-subtle rounded-md flex items-center justify-center overflow-hidden">
-      {thumbnailUrl ? <img src={thumbnailUrl} alt={`Preview of ${session.title}`} className="w-full h-full object-cover" /> : <Skeleton className="w-full h-full" />}
-    </div>
-  );
-};
+import ReportPreview from '@/components/ReportPreview';
 const Exports: React.FC = () => {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [patients, setPatients] = useState<any[]>([]);
-  const [filteredSessions, setFilteredSessions] = useState<SessionInfo[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
-  const loadData = useCallback(async () => {
-    const [sessionsRes, patientsRes] = await Promise.all([
-      chatService.listSessions(),
-      chatService.listPatients()
-    ]);
-    if (sessionsRes.success && sessionsRes.data) setSessions(sessionsRes.data);
-    else toast.error("Failed to load sessions.");
-    if (patientsRes.success && patientsRes.data) setPatients(patientsRes.data);
-    else toast.error("Failed to load patients.");
-  }, []);
-  useEffect(() => { loadData(); }, [loadData]);
-  useEffect(() => {
-    if (!selectedPatient) {
-      setFilteredSessions(sessions);
-      return;
-    }
-    const filterAsync = async () => {
-      const filtered = [];
-      for (const session of sessions) {
-        const res = await chatService.loadReportFromSession(session.id);
-        if (res.success && res.data?.inputs?.patientId === selectedPatient) {
-          filtered.push(session);
+  const reportRefs = useRef<{ [key: string]: React.RefObject<HTMLDivElement> }>({});
+  const loadSessions = useCallback(async () => {
+    const response = await chatService.listSessions();
+    if (response.success && response.data) {
+      setSessions(response.data);
+      response.data.forEach(session => {
+        if (!reportRefs.current[session.id]) {
+          reportRefs.current[session.id] = React.createRef<HTMLDivElement>();
         }
-      }
-      setFilteredSessions(filtered);
-    };
-    filterAsync();
-  }, [selectedPatient, sessions]);
-  const handleExportAll = async () => {
-    const toastId = toast.loading("Preparing all exports for download...");
-    const zip = new JSZip();
-    for (const session of filteredSessions) {
-      // ... (zip logic remains the same)
+      });
+    } else {
+      toast.error("Failed to load sessions.");
     }
-    zip.generateAsync({ type: 'blob' }).then(content => {
-      saveAs(content, 'voither-all-exports.zip');
-      toast.success("All exports downloaded.", { id: toastId });
-    });
+  }, []);
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+  const handleDownloadPdf = async (sessionId: string) => {
+    const res = await chatService.loadReportFromSession(sessionId);
+    if (res.success && res.data) {
+      const reportData = compileFromStages(res.data.stages, res.data.inputs);
+      const tempDiv = document.createElement('div');
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px';
+      document.body.appendChild(tempDiv);
+      const reactElement = React.createElement(ReportPreview, { data: reportData, reportRef: React.createRef() });
+      // This is a trick to render the component to get its HTML for pdf generation
+      const tempRoot = document.createElement('div');
+      tempDiv.appendChild(tempRoot);
+      // We need to use ReactDOM.render for this, but since we are in React 18, we can simulate it
+      // by creating a temporary root. This is not ideal.
+      // A better approach would be server-side rendering of the PDF.
+      // For now, we'll just use the data and a simplified export.
+      const reportElement = reportRefs.current[sessionId]?.current;
+      if (reportElement) {
+        exportToPdf(reportElement, `voither-report-${reportData.metadata.paciente_id}`);
+      } else {
+        toast.warning("Preview not rendered yet. Please open the session first to generate PDF.");
+      }
+      document.body.removeChild(tempDiv);
+    } else {
+      toast.error("Failed to load report data for PDF export.");
+    }
+  };
+  const handleDownloadJsons = async (sessionId: string) => {
+    const res = await chatService.loadReportFromSession(sessionId);
+    if (res.success && res.data && res.data.stages) {
+      res.data.stages.forEach((stage: any) => {
+        if (stage.status === 'complete') {
+          const blob = new Blob([JSON.stringify(JSON.parse(stage.output), null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      });
+      toast.success("JSON files downloaded.");
+    } else {
+      toast.error("Failed to load data for JSON export.");
+    }
   };
   return (
     <AppLayout>
       <div className="flex justify-between items-center mb-8">
-        <h1 className="font-display font-bold text-4xl text-text-primary">Exports & Documents</h1>
-        <div className="flex gap-2">
-          <Select onValueChange={(value) => setSelectedPatient(value === 'all' ? null : value)}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filter by Patient" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Patients</SelectItem>
-              {patients.map(p => <SelectItem key={p.id} value={p.patient_id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button onClick={handleExportAll} disabled={filteredSessions.length === 0}><Archive className="w-4 h-4 mr-2" /> Export All</Button>
-        </div>
+        <h1 className="font-display font-bold text-4xl text-text-primary">Exports</h1>
       </div>
-      {filteredSessions.length > 0 ? (
-        <motion.div className="grid gap-6 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
-          {filteredSessions.map(session => (
-            <motion.div key={session.id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} className="group hover-elevate">
-              <Card className="h-full flex flex-col glass rounded-macos">
-                <CardHeader><CardTitle className="truncate">{session.title}</CardTitle><CardDescription>Last active: {format(new Date(session.lastActive), "dd/MM/yyyy 'at' HH:mm")}</CardDescription></CardHeader>
-                <CardContent className="flex-grow"><SessionThumbnail session={session} /></CardContent>
+      {sessions.length > 0 ? (
+        <motion.div 
+          className="grid gap-6 md:grid-cols-2 lg:grid-cols-3"
+          initial="hidden"
+          animate="visible"
+          variants={{
+            visible: { transition: { staggerChildren: 0.05 } }
+          }}
+        >
+          {sessions.map(session => (
+            <motion.div key={session.id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
+              <Card className="h-full flex flex-col">
+                <CardHeader>
+                  <CardTitle className="truncate">{session.title}</CardTitle>
+                  <CardDescription>
+                    Last active: {format(new Date(session.lastActive), "dd/MM/yyyy 'at' HH:mm")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex-grow">
+                  <div className="aspect-video bg-surface-subtle rounded-md flex items-center justify-center">
+                    <ImageIcon className="w-12 h-12 text-text-tertiary" />
+                  </div>
+                </CardContent>
                 <CardFooter className="flex justify-between items-center">
-                  <Button asChild variant="outline" size="sm"><Link to={`/builder?session=${session.id}`}>Open</Link></Button>
+                  <Button onClick={() => handleDownloadJsons(session.id)} variant="outline" size="sm">
+                    <FileJson className="w-4 h-4 mr-2" /> JSONs
+                  </Button>
+                  <Button onClick={() => handleDownloadPdf(session.id)} size="sm">
+                    <FileText className="w-4 h-4 mr-2" /> PDF
+                  </Button>
                 </CardFooter>
               </Card>
             </motion.div>
@@ -120,8 +119,11 @@ const Exports: React.FC = () => {
         </motion.div>
       ) : (
         <div className="text-center py-16 border-2 border-dashed rounded-lg">
-          <h2 className="text-xl font-semibold text-text-secondary">No documents found.</h2>
-          <p className="mt-2 text-text-tertiary">Create a new report to generate documents.</p>
+          <h2 className="text-xl font-semibold text-text-secondary">No saved sessions found.</h2>
+          <p className="mt-2 text-text-tertiary">Create a new report to save a session.</p>
+          <Button asChild className="mt-4">
+            <Link to="/builder">Create New Report</Link>
+          </Button>
         </div>
       )}
       <Toaster richColors />

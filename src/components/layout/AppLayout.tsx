@@ -1,28 +1,38 @@
 import React from "react";
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
-
+import { Navigation } from '@/components/Navigation';
+import { Toaster } from "@/components/ui/sonner";
 type AppLayoutProps = {
   children: React.ReactNode;
-  container?: boolean;
-  className?: string;
-  contentClassName?: string;
+  footer?: React.ReactNode;
 };
-
-export function AppLayout({ children, container = false, className, contentClassName }: AppLayoutProps): JSX.Element {
+export function AppLayout({ children, footer }: AppLayoutProps): JSX.Element {
   return (
-    <SidebarProvider defaultOpen={false}>
-      <AppSidebar />
-      <SidebarInset className={className}>
-        <div className="absolute left-2 top-2 z-20">
-          <SidebarTrigger />
+    <div className="min-h-screen flex flex-col bg-surface-muted dark:bg-background">
+      <Navigation />
+      <main className="flex-grow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-8 md:py-10 lg:py-12">
+            {children}
+          </div>
         </div>
-        {container ? (
-          <div className={"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10 lg:py-12" + (contentClassName ? ` ${contentClassName}` : "")}>{children}</div>
-        ) : (
-          children
-        )}
-      </SidebarInset>
-    </SidebarProvider>
+      </main>
+      {footer ? (
+        <footer className="bg-surface dark:bg-background border-t">
+          <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 text-center text-sm text-text-tertiary">
+            {footer}
+          </div>
+        </footer>
+      ) : (
+        <footer className="bg-surface dark:bg-background border-t">
+          <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 text-center text-sm text-text-tertiary">
+            <p>Built with ❤️ at Cloudflare</p>
+            <p className="mt-2 text-xs opacity-75">
+              Note: AI feature usage is subject to request limits to ensure service availability.
+            </p>
+          </div>
+        </footer>
+      )}
+      <Toaster richColors closeButton />
+    </div>
   );
 }

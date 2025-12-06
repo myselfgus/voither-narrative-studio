@@ -9,10 +9,11 @@ import {
   Footer,
   SectionRenderer,
 } from '@/components/ReportPreview';
-// This function generates a self-contained HTML string for the report.
+import { PipelineStage } from '@/components/PipelineStages';
+import { TranscriptionInputs } from '@/components/TranscriptionInput';
 const generateReportHTML = (data: NarrativeReportData): string => {
   const coverHTML = renderToString(React.createElement(CoverPage, { data }));
-  const bodyContentHTML = data.sections.map((section, idx) => 
+  const bodyContentHTML = data.sections.map((section, idx) =>
     renderToString(React.createElement(SectionRenderer, { key: idx, section }))
   ).join('');
   const headerHTML = renderToString(React.createElement(Header, { patientId: data.metadata.paciente_id, date: data.metadata.data_analise }));
@@ -49,16 +50,17 @@ const generateReportHTML = (data: NarrativeReportData): string => {
       <style>
         @media print {
           @page { size: A4; margin: 0; }
-          .print-break-after-page { break-after: page; }
+          .page { page-break-after: always; }
           .print-break-inside-avoid { break-inside: avoid; }
         }
-        body { font-family: 'Nunito Sans', sans-serif; }
-        .page { width: 210mm; min-height: 297mm; background: white; }
+        body { font-family: 'Nunito Sans', sans-serif; background: #eee; }
+        .page { width: 210mm; min-height: 297mm; background: white; margin: 1cm auto; box-shadow: 0 0 0.5cm rgba(0,0,0,0.5); }
+        .content-page { display: flex; flex-direction: column; padding: 20mm; }
       </style>
     </head>
     <body>
-      <div class="page print-break-after-page">${coverHTML}</div>
-      <div class="page p-[20mm] flex flex-col">
+      <div class="page">${coverHTML}</div>
+      <div class="page content-page">
         ${headerHTML}
         <div class="flex-grow">${bodyContentHTML}</div>
         ${footerHTML}
@@ -69,7 +71,7 @@ const generateReportHTML = (data: NarrativeReportData): string => {
 };
 export const exportToPdf = (element: HTMLElement, filename: string): void => {
   if (!element) {
-    toast.error("Elemento do relatório não encontrado para exportação.");
+    toast.error("Report element not found for export.");
     return;
   }
   const options = {
@@ -82,6 +84,26 @@ export const exportToPdf = (element: HTMLElement, filename: string): void => {
   };
   html2pdf().from(element.cloneNode(true)).set(options).save().catch(err => {
     console.error("PDF export failed:", err);
-    toast.error("Falha ao exportar PDF.");
+    toast.error("Failed to export PDF.");
   });
+};
+export const generateStagePdf = async (stage: PipelineStage, inputs: TranscriptionInputs): Promise<Blob | null> => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head><title>${stage.name} - ${inputs.patientId}</title></head>
+    <body>
+      <h1>${stage.name} Analysis for ${inputs.patientId}</h1>
+      <pre>${JSON.stringify(JSON.parse(stage.output), null, 2)}</pre>
+    </body>
+    </html>
+  `;
+  try {
+    const pdfBlob = await html2pdf().from(html).outputPdf('blob');
+    return pdfBlob;
+  } catch (error) {
+    console.error(`Failed to generate PDF for stage ${stage.name}:`, error);
+    toast.error(`Failed to generate PDF for stage ${stage.name}.`);
+    return null;
+  }
 };

@@ -1,16 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { Home, FileDown } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Save, FileDown, Edit, XCircle, Bot, FileText } from 'lucide-react';
 import { Toaster, toast } from '@/components/ui/sonner';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import TranscriptionInput, { TranscriptionInputs } from '@/components/TranscriptionInput';
 import PipelineStages, { PipelineStage } from '@/components/PipelineStages';
 import FinalReportPreview from '@/components/FinalReportPreview';
+import ReportEditor from '@/components/ReportEditor';
 import { chatService } from '@/lib/chat';
 import { getASLprompt, getVDLPprompt, getGEMprompt, getNarrativeprompt, getSOAPprompt } from '@/lib/llmPrompts';
 import { exportToPdf } from '@/lib/pdf';
 import { NarrativeReportData } from '@/types/report';
 import { compileFromStages } from '@/lib/reportRenderer';
+import { AppLayout } from '@/components/layout/AppLayout';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 const initialStages: PipelineStage[] = [
   { name: 'ASL', status: 'pending', progress: 0, output: '' },
   { name: 'VDLP', status: 'pending', progress: 0, output: '' },
@@ -18,7 +24,7 @@ const initialStages: PipelineStage[] = [
   { name: 'Narrative', status: 'pending', progress: 0, output: '' },
   { name: 'SOAP', status: 'pending', progress: 0, output: '' },
 ];
-const stagePromptMap = {
+const stagePromptMap: Record<PipelineStage['name'], (transcription: string, patientId: string, prevOutput?: string, inputs?: Partial<TranscriptionInputs>) => string> = {
   ASL: getASLprompt,
   VDLP: getVDLPprompt,
   GEM: getGEMprompt,
@@ -28,6 +34,7 @@ const stagePromptMap = {
 interface SessionData {
   inputs: Partial<TranscriptionInputs>;
   stages: PipelineStage[];
+  lastSaved?: number;
 }
 const ReportBuilder: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -37,6 +44,8 @@ const ReportBuilder: React.FC = () => {
   const [stages, setStages] = useState<PipelineStage[]>(initialStages);
   const [isProcessing, setIsProcessing] = useState(false);
   const [finalReport, setFinalReport] = useState<NarrativeReportData | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState<string>('No session loaded.');
   const abortControllerRef = useRef<AbortController | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
   const loadSession = useCallback(async (id: string) => {
@@ -49,10 +58,13 @@ const ReportBuilder: React.FC = () => {
         const compiledReport = compileFromStages(sessionData.stages, sessionData.inputs as TranscriptionInputs);
         setFinalReport(compiledReport);
       }
+      const lastSavedText = sessionData.lastSaved ? formatDistanceToNow(new Date(sessionData.lastSaved), { addSuffix: true, locale: ptBR }) : 'never';
+      setSessionStatus(`Last saved: ${lastSavedText}`);
     } else {
       setInputs({});
       setStages(initialStages);
       setFinalReport(null);
+      setSessionStatus('New unsaved session.');
       navigate('/builder', { replace: true });
     }
   }, [navigate]);
@@ -71,6 +83,7 @@ const ReportBuilder: React.FC = () => {
       setInputs({});
       setStages(initialStages);
       setFinalReport(null);
+      setSessionStatus('New unsaved session.');
     }
   }, [searchParams, sessionId, loadSession]);
   const handleInputsChange = useCallback((newInputs: Partial<TranscriptionInputs>) => {
@@ -78,24 +91,23 @@ const ReportBuilder: React.FC = () => {
   }, []);
   const saveSession = useCallback(async () => {
     if (sessionId) {
-      const dataToSave: SessionData = { inputs, stages };
-      await chatService.saveReportToSession(sessionId, dataToSave);
+      const dataToSave: SessionData = { inputs, stages, lastSaved: Date.now() };
+      const res = await chatService.saveReportToSession(sessionId, dataToSave);
+      if (res.success) {
+        toast.success("Session saved!");
+        setSessionStatus(`Last saved: just now`);
+      } else {
+        toast.error("Failed to save session.");
+      }
     }
   }, [sessionId, inputs, stages]);
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (Object.keys(inputs).length > 0 || stages.some(s => s.status !== 'pending')) {
-        saveSession();
-      }
-    }, 1000);
-    return () => clearTimeout(handler);
-  }, [inputs, stages, saveSession]);
   const handleStartAnalysis = async (data: TranscriptionInputs) => {
     setIsProcessing(true);
     setFinalReport(null);
+    setIsEditing(false);
     abortControllerRef.current = new AbortController();
     let currentSessionId = sessionId;
-    if (!currentSessionId || !searchParams.get('session')) {
+    if (!searchParams.get('session')) {
         const newId = chatService.getSessionId();
         chatService.setSessionId(newId);
         await chatService.createSession(`Análise de ${data.patientId}`);
@@ -104,7 +116,7 @@ const ReportBuilder: React.FC = () => {
         navigate(`/builder?session=${newId}`, { replace: true });
     }
     setStages(initialStages.map(s => ({...s, output: ''})));
-    toast.info("Iniciando análise...", { description: "O uso de IA está sujeito a limites de requisição." });
+    toast.info("Starting analysis...", { description: "AI usage is subject to request limits." });
     try {
       let prevOutput = '';
       const completedStages: PipelineStage[] = [];
@@ -115,10 +127,10 @@ const ReportBuilder: React.FC = () => {
         const promptFn = stagePromptMap[stageName];
         const prompt = promptFn(data.transcription, data.patientId, prevOutput, data);
         const { success, output } = await chatService.sendMessage(prompt, 'voither', (chunk) => {
-          setStages(prev => prev.map(s => s.name === stageName ? { ...s, output: s.output + chunk } : s));
+          setStages(prev => prev.map(s => s.name === stageName ? { ...s, output: (s.output || '') + chunk } : s));
         }, { signal: abortControllerRef.current.signal });
         if (abortControllerRef.current.signal.aborted) {
-          toast.info("Análise abortada.");
+          toast.info("Analysis aborted.");
           setStages(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending', progress: 0 } : s));
           break;
         }
@@ -126,83 +138,114 @@ const ReportBuilder: React.FC = () => {
           const completedStage = { name: stageName, status: 'complete' as const, progress: 100, output };
           setStages(prev => prev.map(s => s.name === stageName ? completedStage : s));
           completedStages.push(completedStage);
-          prevOutput = output;
-          if (stageName === 'Narrative') {
+          prevOutput = JSON.stringify({ summary: `Output from ${stageName}`, content: output.substring(0, 500) });
+          if (stageName === 'Narrative' || stageName === 'SOAP') {
             const compiled = compileFromStages(completedStages, data);
             setFinalReport(compiled);
           }
         } else {
-          setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'error', progress: 100, output: "Falha na análise." } : s));
-          toast.error(`Erro na etapa ${stageName}.`);
+          setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'error', progress: 100, output: "Analysis failed." } : s));
+          toast.error(`Error in stage ${stageName}.`);
           break;
         }
       }
+      if (!abortControllerRef.current.signal.aborted) {
+        toast.success("Analysis complete!");
+        await saveSession();
+      }
     } catch (error) {
       console.error("An error occurred during analysis:", error);
-      toast.error("Ocorreu um erro inesperado durante a análise.");
+      toast.error("An unexpected error occurred during analysis.");
     } finally {
       setIsProcessing(false);
       abortControllerRef.current = null;
     }
   };
+  const handleAbort = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
   const handleExportPdf = () => {
     if (reportRef.current && inputs.patientId) {
-      toast.info("Gerando PDF...");
+      toast.info("Generating PDF...");
       exportToPdf(reportRef.current, `voither-report-${inputs.patientId}`);
     } else {
-      toast.error("Não foi possível gerar o PDF. Dados ausentes.");
+      toast.error("Could not generate PDF. Missing data.");
     }
   };
   return (
-    <div className="min-h-screen flex flex-col bg-surface-muted dark:bg-background">
-      <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <Link to="/" className="flex items-center gap-2">
-              <span className="font-brand font-bold text-2xl text-text-primary tracking-tighter">VOITHER</span>
-              <span className="font-display font-light text-text-secondary">HealthOS</span>
-            </Link>
-            <div className="flex items-center gap-4">
-              {finalReport && (
-                <Button onClick={handleExportPdf} disabled={!finalReport}>
-                  <FileDown className="w-4 h-4 mr-2" />
-                  Gerar PDF
-                </Button>
-              )}
-              <Link to="/" className="hidden sm:flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
-                <Home className="w-4 h-4" />
-                Página Inicial
-              </Link>
-              <ThemeToggle className="relative top-0 right-0" />
-            </div>
+    <AppLayout>
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="font-display font-bold text-4xl text-text-primary">Report Builder</h1>
+            <p className="text-muted-foreground text-sm">{sessionStatus}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={saveSession} variant="outline" disabled={isProcessing}>
+              <Save className="w-4 h-4 mr-2" /> Save Session
+            </Button>
+            {isProcessing && (
+              <Button onClick={handleAbort} variant="destructive">
+                <XCircle className="w-4 h-4 mr-2" /> Abort
+              </Button>
+            )}
           </div>
         </div>
-      </header>
-      <main className="flex-grow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full">
-          <div className="py-8 md:py-10 lg:py-12 h-full">
-            <div className="flex flex-col lg:grid lg:grid-cols-2 gap-8 h-full">
-              <div className="lg:overflow-y-auto">
-                <TranscriptionInput
-                  initialData={inputs}
-                  onStartAnalysis={handleStartAnalysis}
-                  onInputsChange={handleInputsChange}
-                  isProcessing={isProcessing}
-                />
-              </div>
-              <div className="lg:overflow-y-auto h-[80vh] lg:h-auto">
-                {finalReport ? (
-                  <FinalReportPreview data={finalReport} reportRef={reportRef} />
-                ) : (
-                  <PipelineStages stages={stages} patientId={inputs.patientId} />
+        <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh]">
+          <ResizablePanel defaultSize={40} minSize={30}>
+            <ScrollArea className="h-full p-4">
+              <TranscriptionInput
+                initialData={inputs}
+                onStartAnalysis={handleStartAnalysis}
+                onInputsChange={handleInputsChange}
+                isProcessing={isProcessing}
+              />
+            </ScrollArea>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={60} minSize={40}>
+            <div className="h-full flex flex-col">
+              <div className="p-2 border-b flex-shrink-0 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  {finalReport ? <FileText className="w-5 h-5 text-primary" /> : <Bot className="w-5 h-5 text-primary" />}
+                  <h2 className="font-semibold">{finalReport ? "Final Report Preview" : "Analysis Pipeline"}</h2>
+                </div>
+                {finalReport && (
+                  <div className="flex gap-2">
+                    <Button onClick={() => setIsEditing(!isEditing)} variant="outline" size="sm">
+                      <Edit className="w-4 h-4 mr-2" /> {isEditing ? "View Preview" : "Edit Report"}
+                    </Button>
+                    <Button onClick={handleExportPdf} size="sm">
+                      <FileDown className="w-4 h-4 mr-2" /> Export PDF
+                    </Button>
+                  </div>
                 )}
               </div>
+              <ScrollArea className="h-full">
+                <div className="p-4">
+                  {finalReport ? (
+                    isEditing ? (
+                      <ReportEditor
+                        reportData={finalReport}
+                        onUpdate={setFinalReport}
+                        onSave={saveSession}
+                      />
+                    ) : (
+                      <FinalReportPreview data={finalReport} reportRef={reportRef} />
+                    )
+                  ) : (
+                    <PipelineStages stages={stages} patientId={inputs.patientId} />
+                  )}
+                </div>
+              </ScrollArea>
             </div>
-          </div>
-        </div>
-      </main>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
       <Toaster richColors closeButton />
-    </div>
+    </AppLayout>
   );
 };
 export default ReportBuilder;

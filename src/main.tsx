@@ -13,6 +13,7 @@ import '@/index.css'
 import { HomePage } from '@/pages/HomePage'
 import ReportBuilder from '@/pages/ReportBuilder';
 import SessionList from '@/pages/SessionList';
+import Exports from '@/pages/Exports';
 const router = createBrowserRouter([
   {
     path: "/",
@@ -27,6 +28,11 @@ const router = createBrowserRouter([
   {
     path: "/sessions",
     element: <SessionList />,
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/exports",
+    element: <Exports />,
     errorElement: <RouteErrorBoundary />,
   },
 ]);
