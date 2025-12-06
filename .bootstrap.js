@@ -80,7 +80,8 @@ function runSetupCommands() {
     const commands = [
     "bun add html2pdf.js@^0.10.1",
     "bun install react-dropzone",
-    "bun add react-dropzone"
+    "bun add react-dropzone",
+    "bun add diff-match-patch"
 ];
     
     if (commands.length === 0) {
