@@ -82,7 +82,8 @@ function runSetupCommands() {
     "bun install react-dropzone",
     "bun add react-dropzone",
     "bun add diff-match-patch",
-    "bun add jszip"
+    "bun add jszip",
+    "bun install file-saver"
 ];
     
     if (commands.length === 0) {
