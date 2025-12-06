@@ -78,11 +78,11 @@ const PatientDashboard: React.FC = () => {
       const allRecordings = (res.data.sessions as Session[]).flatMap(s => {
         try {
           const report = JSON.parse(s.report);
-          return report?.report?.recordings || report?.recordings || [];
+          return (report?.report?.recordings || report?.recordings || []).filter((r: any) => r.url && (r.type === 'audio' || r.type === 'video'));
         } catch {
           return [];
         }
-      }).filter(r => r.url && r.type);
+      });
       setRecordings(allRecordings);
       console.log('Loaded recordings for patient:', allRecordings);
     } else {
@@ -116,8 +116,8 @@ const PatientDashboard: React.FC = () => {
         const sessionRecordings = reportData?.recordings || reportContainer?.recordings || [];
         if (sessionRecordings) {
           for (const [index, rec] of sessionRecordings.entries()) {
-            const base64Data = rec.url.split(',')[1];
-            if (base64Data) {
+            if (rec.url.startsWith('data:')) {
+              const base64Data = rec.url.split(',')[1];
               const fileExtension = rec.type === 'video' ? 'webm' : 'webm';
               zip.file(`session_${session.session_id}/recording_${index + 1}.${fileExtension}`, base64Data, { base64: true });
               fileCount++;

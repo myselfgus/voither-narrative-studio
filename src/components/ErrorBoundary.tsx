@@ -20,9 +20,9 @@ export class ErrorBoundary extends Component<Props, State> {
   }
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
-    console.error("Uncaught error:", error, errorInfo);
-    toast.error(`Error in ${window.location.pathname}`, {
-      description: error.message || "An unexpected error occurred.",
+    console.error(`Error in ${window.location.pathname}:`, error, errorInfo);
+    toast.error(`An unexpected error occurred.`, {
+      description: error.message || "Please try refreshing the page.",
       duration: 10000,
       action: {
         label: 'Retry',
@@ -31,6 +31,7 @@ export class ErrorBoundary extends Component<Props, State> {
     });
   }
   handleRetry = () => {
+    toast.info('Reloading page...');
     window.location.reload();
   };
   render() {
@@ -39,6 +40,8 @@ export class ErrorBoundary extends Component<Props, State> {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
           className="flex h-screen w-screen items-center justify-center bg-background"
           role="alert"
         >
