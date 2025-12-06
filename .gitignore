@@ -34,3 +34,7 @@ yarn-error.log*
 
 # Bootstrap marker
 .bootstrap-complete
+
+# Cache files
+.eslintcache
+tsconfig.tsbuildinfo
