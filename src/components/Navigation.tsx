@@ -24,7 +24,7 @@ const NavLink = ({ href, label, icon: Icon, isMobile = false }: { href: string; 
       isActive ? "text-primary font-semibold" : "text-muted-foreground",
       isMobile && "w-full min-h-12 text-base"
     )}>
-      <Link to={href}>
+      <Link to={href} aria-label={`Navigate to ${label}`}>
         <Icon className="mr-2 h-4 w-4" />
         {label}
         {isActive && !isMobile && (
@@ -74,13 +74,13 @@ export function Navigation() {
                     initial="hidden"
                     animate="visible"
                     variants={{
-                      visible: { transition: { staggerChildren: 0.05 } }
+                      visible: { transition: { staggerChildren: 0.07, delayChildren: 0.1 } }
                     }}
                     className="flex flex-col gap-2 p-4 pt-10"
                   >
                     {navItems.map(item => (
                       <SheetClose asChild key={item.href}>
-                         <motion.div variants={{ hidden: { opacity: 0, x: 50 }, visible: { opacity: 1, x: 0 } }}>
+                         <motion.div variants={{ hidden: { opacity: 0, x: 20 }, visible: { opacity: 1, x: 0 } }}>
                             <NavLink {...item} isMobile />
                          </motion.div>
                       </SheetClose>

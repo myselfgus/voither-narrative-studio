@@ -7,6 +7,7 @@ import TranscriptionInput, { TranscriptionInputs } from '@/components/Transcript
 import PipelineStages, { PipelineStage } from '@/components/PipelineStages';
 import FinalReportPreview from '@/components/FinalReportPreview';
 import ReportEditor from '@/components/ReportEditor';
+import DiffModal from '@/components/DiffModal';
 import { chatService } from '@/lib/chat';
 import { getASLprompt, getVDLPprompt, getGEMprompt, getNarrativeprompt, getSOAPprompt } from '@/lib/llmPrompts';
 import { NarrativeReportData } from '@/types/report';
@@ -17,6 +18,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useIsMobile } from '@/hooks/use-mobile';
 const initialStages: PipelineStage[] = [
   { name: 'ASL', status: 'pending', progress: 0, output: '' },
   { name: 'VDLP', status: 'pending', progress: 0, output: '' },
@@ -49,6 +51,7 @@ const ReportBuilder: React.FC = () => {
   const [sessionStatus, setSessionStatus] = useState<string>('No session loaded.');
   const abortControllerRef = useRef<AbortController | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
   const loadSession = useCallback(async (id: string) => {
     const res = await chatService.loadReportFromSession(id);
     if (res.success && res.data) {
@@ -89,9 +92,12 @@ const ReportBuilder: React.FC = () => {
       setSessionStatus('New unsaved session.');
     }
   }, [searchParams, sessionId, loadSession]);
-  const handleInputsChange = useCallback((newInputs: Partial<TranscriptionInputs>) => {
+  const debouncedSetInputs = useDebounce((newInputs: Partial<TranscriptionInputs>) => {
     setInputs(prev => ({ ...prev, ...newInputs }));
-  }, []);
+  }, 300);
+  const handleInputsChange = useCallback((newInputs: Partial<TranscriptionInputs>) => {
+    debouncedSetInputs(newInputs);
+  }, [debouncedSetInputs]);
   const saveSession = useCallback(async () => {
     if (sessionId) {
       const dataToSave: SessionData = { inputs, stages, report: finalReport || undefined, lastSaved: Date.now() };
@@ -193,63 +199,24 @@ const ReportBuilder: React.FC = () => {
             <p className="text-muted-foreground text-sm">{sessionStatus}</p>
           </div>
           <div className="flex gap-2">
-            <Button onClick={saveSession} variant="outline" disabled={isProcessing}>
-              <Save className="w-4 h-4 mr-2" /> Save Session
-            </Button>
-            {isProcessing && (
-              <Button onClick={handleAbort} variant="destructive">
-                <XCircle className="w-4 h-4 mr-2" /> Abort
-              </Button>
-            )}
+            <Button onClick={saveSession} variant="outline" disabled={isProcessing}><Save className="w-4 h-4 mr-2" /> Save Session</Button>
+            {isProcessing && (<Button onClick={handleAbort} variant="destructive"><XCircle className="w-4 h-4 mr-2" /> Abort</Button>)}
           </div>
         </div>
-        <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh] flex-col md:flex-row">
+        <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"} className="rounded-lg border min-h-[80vh]">
           <ResizablePanel defaultSize={40} minSize={30}>
-            <ScrollArea className="h-full">
-              <div className="p-4">
-                <TranscriptionInput
-                  initialData={inputs}
-                  onStartAnalysis={handleStartAnalysis}
-                  onInputsChange={handleInputsChange}
-                  isProcessing={isProcessing}
-                />
-              </div>
-            </ScrollArea>
+            <ScrollArea className="h-full"><div className="p-4"><TranscriptionInput initialData={inputs} onStartAnalysis={handleStartAnalysis} onInputsChange={handleInputsChange} isProcessing={isProcessing} /></div></ScrollArea>
           </ResizablePanel>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={60} minSize={40}>
             <div className="h-full flex flex-col">
               <div className="p-2 border-b flex-shrink-0 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  {finalReport ? <FileText className="w-5 h-5 text-primary" /> : <Bot className="w-5 h-5 text-primary" />}
-                  <h2 className="font-semibold">{finalReport ? "Final Report Preview" : "Analysis Pipeline"}</h2>
-                </div>
-                {finalReport && (
-                  <div className="flex gap-2">
-                    <Button onClick={() => setIsEditing(!isEditing)} variant="outline" size="sm">
-                      <Edit className="w-4 h-4 mr-2" /> {isEditing ? "View Preview" : "Edit Report"}
-                    </Button>
-                    <Button onClick={handleExportPdf} size="sm">
-                      <FileDown className="w-4 h-4 mr-2" /> Export PDF
-                    </Button>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">{finalReport ? <FileText className="w-5 h-5 text-primary" /> : <Bot className="w-5 h-5 text-primary" />}<h2 className="font-semibold">{finalReport ? "Final Report Preview" : "Analysis Pipeline"}</h2></div>
+                {finalReport && (<div className="flex gap-2"><Button onClick={() => setIsEditing(!isEditing)} variant="outline" size="sm"><Edit className="w-4 h-4 mr-2" /> {isEditing ? "View Preview" : "Edit Report"}</Button><Button onClick={handleExportPdf} size="sm"><FileDown className="w-4 h-4 mr-2" /> Export PDF</Button></div>)}
               </div>
               <ScrollArea className="h-full">
                 <div className="p-4">
-                  {finalReport ? (
-                    isEditing ? (
-                      <ReportEditor
-                        reportData={finalReport}
-                        onUpdate={setFinalReport}
-                        onSave={saveSession}
-                      />
-                    ) : (
-                      <FinalReportPreview data={finalReport} reportRef={reportRef} />
-                    )
-                  ) : (
-                    <PipelineStages stages={stages} patientId={inputs.patientId} />
-                  )}
+                  {finalReport ? (isEditing ? <ReportEditor reportData={finalReport} onUpdate={setFinalReport} onSave={saveSession} /> : <FinalReportPreview data={finalReport} reportRef={reportRef} />) : <PipelineStages stages={stages} patientId={inputs.patientId} />}
                 </div>
               </ScrollArea>
             </div>

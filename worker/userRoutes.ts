@@ -32,7 +32,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const body = await c.req.json().catch(() => ({}));
         const { title, sessionId: providedSessionId, reportData } = body;
         const sessionId = providedSessionId || crypto.randomUUID();
-        await registerSession(c.env, sessionId, title || 'Novo Relatório');
+        await registerSession(c.env, sessionId, title || 'Novo Relat��rio');
         if (reportData) {
             const controller = getAppController(c.env);
             await controller.setReportData(sessionId, reportData);
@@ -69,6 +69,10 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     });
     // Patient Management (D1-based)
     app.get('/api/patients', async (c) => {
+        if (!c.env.VOITHER_D1) {
+            console.error('D1 binding VOITHER_D1 not found.');
+            return c.json({ success: false, error: 'Database not configured' }, { status: 500 });
+        }
         try {
             const { results } = await c.env.VOITHER_D1.prepare(
                 `SELECT id, patient_id, name, context, crm, updated_at,
@@ -82,6 +86,10 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         }
     });
     app.get('/api/patients/:id', async (c) => {
+        if (!c.env.VOITHER_D1) {
+            console.error('D1 binding VOITHER_D1 not found.');
+            return c.json({ success: false, error: 'Database not configured' }, { status: 500 });
+        }
         const patientId = c.req.param('id');
         try {
             const patient = await c.env.VOITHER_D1.prepare('SELECT * FROM Patients WHERE id = ?1').bind(patientId).first();

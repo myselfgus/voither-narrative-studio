@@ -38,11 +38,7 @@ const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
   }, [session.id]);
   return (
     <div className="aspect-[3/4] bg-surface-subtle rounded-md flex items-center justify-center overflow-hidden">
-      {thumbnailUrl ? (
-        <img src={thumbnailUrl} alt={`Preview of ${session.title}`} className="w-full h-full object-cover" />
-      ) : (
-        <Skeleton className="w-full h-full" />
-      )}
+      {thumbnailUrl ? <img src={thumbnailUrl} alt={`Preview of ${session.title}`} className="w-full h-full object-cover" /> : <Skeleton className="w-full h-full" />}
     </div>
   );
 };
@@ -50,15 +46,10 @@ const Exports: React.FC = () => {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const loadSessions = useCallback(async () => {
     const response = await chatService.listSessions();
-    if (response.success && response.data) {
-      setSessions(response.data);
-    } else {
-      toast.error("Failed to load sessions.");
-    }
+    if (response.success && response.data) setSessions(response.data);
+    else toast.error("Failed to load sessions.");
   }, []);
-  useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
+  useEffect(() => { loadSessions(); }, [loadSessions]);
   const handleDownloadPdf = async (sessionId: string) => {
     toast.info("Generating PDF...");
     try {
@@ -69,12 +60,8 @@ const Exports: React.FC = () => {
           const htmlString = generateReportHtml(reportData);
           const { exportToPdf } = await import('@/lib/pdf');
           exportToPdf(htmlString, `voither-report-${reportData.metadata.paciente_id}`);
-        } else {
-          throw new Error("Report data is missing or invalid.");
-        }
-      } else {
-        throw new Error(res.error || "Failed to load report data.");
-      }
+        } else throw new Error("Report data is missing or invalid.");
+      } else throw new Error(res.error || "Failed to load report data.");
     } catch (error: any) {
       toast.error("Failed to export PDF.", { description: error.message });
     }
@@ -89,21 +76,17 @@ const Exports: React.FC = () => {
               const content = JSON.stringify(JSON.parse(stage.output), null, 2);
               const blob = new Blob([content], { type: 'application/json' });
               saveAs(blob, `voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`);
-            } catch (e) {
-              console.error(`Could not parse JSON for stage ${stage.name}`);
-            }
+            } catch (e) { console.error(`Could not parse JSON for stage ${stage.name}`); }
           }
         });
         toast.success("JSON files downloaded.");
-      } else {
-        throw new Error(res.error || "Failed to load data for JSON export.");
-      }
+      } else throw new Error(res.error || "Failed to load data for JSON export.");
     } catch (error: any) {
       toast.error("Failed to download JSONs.", { description: error.message });
     }
   };
   const handleExportAll = async () => {
-    toast.info("Preparing all exports for download...");
+    const toastId = toast.loading("Preparing all exports for download...");
     const zip = new JSZip();
     for (const session of sessions) {
       try {
@@ -121,49 +104,31 @@ const Exports: React.FC = () => {
             });
           }
         }
-      } catch (error) {
-        console.error(`Failed to process session ${session.id} for zip export.`, error);
-      }
+      } catch (error) { console.error(`Failed to process session ${session.id} for zip export.`, error); }
     }
-    zip.generateAsync({ type: 'blob' }).then(content => {
+    zip.generateAsync({ type: 'blob' }, (metadata) => {
+      toast.loading(`Zipping... ${metadata.percent.toFixed(0)}%`, { id: toastId });
+    }).then(content => {
       saveAs(content, 'voither-all-exports.zip');
-      toast.success("All exports downloaded.");
+      toast.success("All exports downloaded.", { id: toastId });
     });
   };
   return (
     <AppLayout>
       <div className="flex justify-between items-center mb-8">
         <h1 className="font-display font-bold text-4xl text-text-primary">Exports</h1>
-        <Button onClick={handleExportAll} disabled={sessions.length === 0}>
-          <Archive className="w-4 h-4 mr-2" /> Export All
-        </Button>
+        <Button onClick={handleExportAll} disabled={sessions.length === 0}><Archive className="w-4 h-4 mr-2" /> Export All</Button>
       </div>
       {sessions.length > 0 ? (
-        <motion.div
-          className="grid gap-6 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-          initial="hidden"
-          animate="visible"
-          variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
-        >
+        <motion.div className="grid gap-6 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
           {sessions.map(session => (
-            <motion.div key={session.id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
-              <Card className="h-full flex flex-col" role="listitem" aria-label={`Export session ${session.title}`}>
-                <CardHeader>
-                  <CardTitle className="truncate">{session.title}</CardTitle>
-                  <CardDescription>
-                    Last active: {format(new Date(session.lastActive), "dd/MM/yyyy 'at' HH:mm")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex-grow">
-                  <SessionThumbnail session={session} />
-                </CardContent>
+            <motion.div key={session.id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} role="listitem" aria-label={`Export session ${session.title}`}>
+              <Card className="h-full flex flex-col">
+                <CardHeader><CardTitle className="truncate">{session.title}</CardTitle><CardDescription>Last active: {format(new Date(session.lastActive), "dd/MM/yyyy 'at' HH:mm")}</CardDescription></CardHeader>
+                <CardContent className="flex-grow"><SessionThumbnail session={session} /></CardContent>
                 <CardFooter className="flex justify-between items-center">
-                  <Button onClick={() => handleDownloadJsons(session.id)} variant="outline" size="sm">
-                    <FileJson className="w-4 h-4 mr-2" /> JSONs
-                  </Button>
-                  <Button onClick={() => handleDownloadPdf(session.id)} size="sm">
-                    <FileText className="w-4 h-4 mr-2" /> PDF
-                  </Button>
+                  <Button onClick={() => handleDownloadJsons(session.id)} variant="outline" size="sm"><FileJson className="w-4 h-4 mr-2" /> JSONs</Button>
+                  <Button onClick={() => handleDownloadPdf(session.id)} size="sm"><FileText className="w-4 h-4 mr-2" /> PDF</Button>
                 </CardFooter>
               </Card>
             </motion.div>
@@ -173,9 +138,7 @@ const Exports: React.FC = () => {
         <div className="text-center py-16 border-2 border-dashed rounded-lg">
           <h2 className="text-xl font-semibold text-text-secondary">No saved sessions found.</h2>
           <p className="mt-2 text-text-tertiary">Create a new report to save a session.</p>
-          <Button asChild className="mt-4">
-            <Link to="/builder">Create New Report</Link>
-          </Button>
+          <Button asChild className="mt-4"><Link to="/builder">Create New Report</Link></Button>
         </div>
       )}
       <Toaster richColors />

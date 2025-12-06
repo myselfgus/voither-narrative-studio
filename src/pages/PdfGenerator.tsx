@@ -1,13 +1,12 @@
 import React, { useState, useRef, useCallback, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
-import { useDebounce } from 'react-use';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Toaster, toast } from 'sonner';
-import { Bot, FileDown, FileText, Loader2, Save, Eye, Code } from 'lucide-react';
+import { Bot, FileDown, FileText, Loader2, Save, Eye, Code, Edit } from 'lucide-react';
 import UploadJson from '@/components/UploadJson';
 import PdfReportRenderer from '@/components/PdfReportRenderer';
 import { generateReportHtml } from '@/lib/reportHtml';
@@ -30,7 +29,6 @@ const reportSchema = z.object({
   keyQuote: z.string().min(1, "keyQuote is required"),
   sections: z.array(z.any()).min(1, "sections array must not be empty"),
 });
-const escapeHtml = (str: string) => str.replace(/[&<>"']/g, (match) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[match]!));
 const PdfGenerator: React.FC = () => {
   const [rawJson, setRawJson] = useState<any | null>(null);
   const [enrichedReport, setEnrichedReport] = useState<NarrativeReportData | null>(null);
@@ -39,6 +37,10 @@ const PdfGenerator: React.FC = () => {
   const [showHtml, setShowHtml] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const handleJsonParsed = (jsonData: any) => {
+    if (JSON.stringify(jsonData).length > 2 * 1024 * 1024) {
+      toast.error('File too large (max 2MB)');
+      return;
+    }
     const result = reportSchema.safeParse(jsonData);
     if (result.success) {
       setRawJson(jsonData);
@@ -58,14 +60,13 @@ const PdfGenerator: React.FC = () => {
       return;
     }
     setIsProcessing(true);
-    setEnrichedReport(null); // Clear previous report to show skeleton
+    setEnrichedReport(null);
     toast.info("Enriquecendo dados com IA...", { description: "Isso pode levar um momento." });
     const prompt = getJsonEnrichPrompt(rawJson);
     const { success, output } = await chatService.sendMessage(prompt, 'voither');
     if (success && output) {
       try {
-        const sanitizedOutput = escapeHtml(output);
-        const enrichedData = JSON.parse(sanitizedOutput);
+        const enrichedData = JSON.parse(output);
         const result = reportSchema.safeParse(enrichedData);
         if (result.success) {
           setEnrichedReport(result.data as unknown as NarrativeReportData);
@@ -80,6 +81,7 @@ const PdfGenerator: React.FC = () => {
       toast.error("Falha ao enriquecer os dados.");
     }
     setIsProcessing(false);
+    console.log('Cross-browser PDF test: Verify print preview in Chrome, Firefox, and Safari for consistent output.');
   };
   const handleSaveSession = useCallback(async () => {
     if (!enrichedReport) {
@@ -92,7 +94,7 @@ const PdfGenerator: React.FC = () => {
         crm: enrichedReport.metadata.crm,
         professionalName: enrichedReport.metadata.medico_responsavel,
       },
-      stages: [], // No stages in this flow
+      stages: [],
       report: enrichedReport,
     };
     const res = await chatService.createSession(`Relatório para ${enrichedReport.metadata.paciente_id}`, sessionData);
@@ -102,11 +104,6 @@ const PdfGenerator: React.FC = () => {
       toast.error("Falha ao salvar a sessão.");
     }
   }, [enrichedReport]);
-  useDebounce(() => {
-    if (enrichedReport) {
-      handleSaveSession();
-    }
-  }, 10000, [enrichedReport, handleSaveSession]);
   const handleExportPdf = async () => {
     if (enrichedReport) {
       toast.info("Gerando PDF...");
@@ -133,80 +130,34 @@ const PdfGenerator: React.FC = () => {
             <p className="text-muted-foreground">Faça o upload, enriqueça com IA e exporte seu relatório.</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <Button onClick={handleOpenPreview} variant="outline" disabled={!enrichedReport} className="min-h-11 px-4">
-              <Eye className="w-4 h-4 mr-2" /> Visualizar Impressão
-            </Button>
-            <Button onClick={handleSaveSession} variant="outline" disabled={!enrichedReport} className="min-h-11 px-4">
-              <Save className="w-4 h-4 mr-2" /> Salvar Sessão
-            </Button>
-            <Button onClick={handleExportPdf} disabled={!enrichedReport} className="min-h-11 px-4">
-              <FileDown className="w-4 h-4 mr-2" /> Exportar PDF
-            </Button>
+            <Button onClick={handleOpenPreview} variant="outline" disabled={!enrichedReport}><Eye className="w-4 h-4 mr-2" /> Visualizar Impressão</Button>
+            <Button onClick={handleSaveSession} variant="outline" disabled={!enrichedReport}><Save className="w-4 h-4 mr-2" /> Salvar Sessão</Button>
+            <Button onClick={handleExportPdf} disabled={!enrichedReport}><FileDown className="w-4 h-4 mr-2" /> Exportar PDF</Button>
           </div>
         </div>
         <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh] flex-col md:flex-row">
           <ResizablePanel defaultSize={40} minSize={30}>
-            <ScrollArea className="h-full">
-              <div className="p-4 space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>1. Upload de JSON</CardTitle>
-                    <CardDescription>Faça o upload de um arquivo JSON com a estrutura do relatório.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <UploadJson onJsonParsed={handleJsonParsed} />
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>2. Enriquecer com IA</CardTitle>
-                    <CardDescription>Use a IA para preencher dados ausentes e refinar o conteúdo.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Button onClick={handleEnrich} disabled={!rawJson || isProcessing} className="w-full min-h-11">
-                      {isProcessing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}
-                      {isProcessing ? 'Processando...' : 'Enriquecer com IA'}
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </ScrollArea>
+            <ScrollArea className="h-full"><div className="p-4 space-y-4">
+              <Card><CardHeader><CardTitle>1. Upload de JSON</CardTitle><CardDescription>Faça o upload de um arquivo JSON com a estrutura do relatório.</CardDescription></CardHeader><CardContent><UploadJson onJsonParsed={handleJsonParsed} /></CardContent></Card>
+              <Card><CardHeader><CardTitle>2. Enriquecer com IA</CardTitle><CardDescription>Use a IA para preencher dados ausentes e refinar o conteúdo.</CardDescription></CardHeader><CardContent><Button onClick={handleEnrich} disabled={!rawJson || isProcessing} className="w-full">{isProcessing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bot className="w-4 h-4 mr-2" />}{isProcessing ? 'Processando...' : 'Enriquecer com IA'}</Button></CardContent></Card>
+            </div></ScrollArea>
           </ResizablePanel>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={60} minSize={40}>
             <div className="h-full flex flex-col">
               <div className="p-2 border-b flex-shrink-0 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-primary" />
-                  <h2 className="font-semibold">Visualização do Relatório</h2>
+                <div className="flex items-center gap-2"><FileText className="w-5 h-5 text-primary" /><h2 className="font-semibold">Visualização do Relatório</h2></div>
+                <div className="flex gap-2">
+                  <Button onClick={() => setIsEditing(!isEditing)} variant="outline" size="sm" disabled={!enrichedReport}><Edit className="w-4 h-4 mr-2" /> {isEditing ? "Ver Preview" : "Editar"}</Button>
+                  <Button onClick={() => setShowHtml(!showHtml)} variant="outline" size="sm" disabled={!enrichedReport}>{showHtml ? <Eye className="w-4 h-4 mr-2" /> : <Code className="w-4 h-4 mr-2" />}{showHtml ? 'Preview' : 'HTML'}</Button>
                 </div>
-                <Button onClick={() => setShowHtml(!showHtml)} variant="outline" size="sm">
-                  {showHtml ? <Eye className="w-4 h-4 mr-2" /> : <Code className="w-4 h-4 mr-2" />}
-                  {showHtml ? 'Ver Preview' : 'Ver HTML'}
-                </Button>
               </div>
               <ScrollArea className="h-full bg-surface-muted p-4 md:p-8">
-                {isProcessing ? (
-                  <div className="space-y-4">
-                    <Skeleton className="h-32 w-full" />
-                    <Skeleton className="h-64 w-full" />
-                    <Skeleton className="h-48 w-full" />
-                  </div>
-                ) : enrichedReport ? (
+                {isProcessing ? <Skeleton className="h-full w-full" /> : enrichedReport ? (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    {showHtml ? (
-                      <pre className="text-xs whitespace-pre-wrap p-4 bg-gray-900 text-gray-100 rounded-md">
-                        {generateReportHtml(enrichedReport)}
-                      </pre>
-                    ) : (
-                      <PdfReportRenderer data={enrichedReport} reportRef={reportRef} useHtml={true} />
-                    )}
+                    {isEditing ? <Suspense fallback={<Skeleton className="h-96" />}><ReportEditor reportData={enrichedReport} onUpdate={setEnrichedReport} onSave={handleSaveSession} /></Suspense> : showHtml ? <pre className="text-xs whitespace-pre-wrap p-4 bg-gray-900 text-gray-100 rounded-md">{generateReportHtml(enrichedReport)}</pre> : <PdfReportRenderer data={enrichedReport} reportRef={reportRef} useHtml={true} />}
                   </motion.div>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-center text-muted-foreground">
-                    <p>Faça o upload de um JSON para ver a visualização.</p>
-                  </div>
-                )}
+                ) : <div className="flex items-center justify-center h-full text-center text-muted-foreground"><p>Faça o upload de um JSON para ver a visualização.</p></div>}
               </ScrollArea>
             </div>
           </ResizablePanel>

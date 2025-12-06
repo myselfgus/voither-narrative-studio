@@ -1,4 +1,5 @@
-import type { SessionInfo } from '../../worker/types';
+import type { SessionInfo, Message } from '../../worker/types';
+import { NarrativeReportData } from '@/types/report';
 const escapeHtml = (str: string | number | null | undefined): string => {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -9,6 +10,26 @@ const escapeHtml = (str: string | number | null | undefined): string => {
     .replace(/'/g, '&#039;');
 };
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const createFallbackReport = (errorMessage: string): NarrativeReportData => ({
+  metadata: {
+    paciente_id: 'Fallback Data',
+    contexto: 'Error during processing',
+    data_analise: new Date().toISOString(),
+    medico_responsavel: 'N/A',
+    crm: 'N/A',
+    total_turnos: 0,
+    total_palavras: 0,
+    duracao_estimada_consulta: 'N/A',
+    analista: 'System',
+  },
+  reportTitle: 'Error Generating Report',
+  keyQuote: 'An error occurred.',
+  sections: [{
+    title: 'Processing Error',
+    intro: [{ type: 'paragraph', content: `Failed to process the request. Please check your connection and try again. Details: ${errorMessage}` }],
+    subsections: [],
+  }],
+});
 class ChatService {
   private sessionId: string;
   private baseUrl: string;
@@ -34,7 +55,7 @@ class ChatService {
     model: string = 'voither',
     onChunk?: (chunk: string) => void,
     options?: { data?: any; signal?: AbortSignal; apiKey?: string }
-  ): Promise<{ success: boolean; output?: string }> {
+  ): Promise<{ success: boolean; output?: string; fallbackReport?: NarrativeReportData }> {
     if (options?.data && JSON.stringify(options.data).length > 1024 * 1024) {
       return { success: false, output: "Error: Payload too large. Please keep transcriptions under 1MB." };
     }
@@ -47,9 +68,9 @@ class ChatService {
           body: JSON.stringify({ message, model, stream: !!onChunk, data: options?.data }),
           signal: options?.signal,
         });
-        if (response.status === 429 && attempt < maxRetries - 1) {
+        if ((response.status === 429 || response.status >= 500) && attempt < maxRetries - 1) {
           const delayMs = Math.pow(2, attempt) * 1000;
-          console.warn(`Rate limited. Retrying in ${delayMs}ms...`);
+          console.warn(`[ChatService:${this.sessionId}] Status ${response.status}. Retrying in ${delayMs}ms...`);
           await delay(delayMs);
           continue;
         }
@@ -69,21 +90,22 @@ class ChatService {
           }
         } else {
           const result = await response.json();
-          fullOutput = result.data?.messages?.[result.data.messages.length - 1]?.content || '';
+          const messages: Message[] = result.data?.messages || [];
+          fullOutput = messages.length > 0 ? messages[messages.length - 1].content : '';
         }
         return { success: true, output: escapeHtml(fullOutput) };
       } catch (error: any) {
+        console.error(`[ChatService:${this.sessionId}] SendMessage failed on attempt ${attempt + 1}:`, error);
         if (error.name === 'AbortError') {
-          console.log('Fetch aborted');
-          return { success: false };
+          return { success: false, output: 'Request aborted by user.' };
         }
         if (attempt === maxRetries - 1) {
-          console.error('Failed to send message after multiple retries:', error);
-          return { success: false, output: `Error: ${error.message}` };
+          return { success: false, output: `Error: ${error.message}`, fallbackReport: createFallbackReport(error.message) };
         }
       }
     }
-    return { success: false, output: 'An unknown error occurred after retries.' };
+    const finalError = 'An unknown error occurred after multiple retries.';
+    return { success: false, output: finalError, fallbackReport: createFallbackReport(finalError) };
   }
   async createSession(title?: string, reportData?: any): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> {
     try {
@@ -157,7 +179,6 @@ class ChatService {
     const response = await fetch(`/api/user/apikey?sessionId=${sessionId}`);
     return response.json();
   }
-  // Patient API methods
   async listPatients(): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
       const response = await fetch('/api/patients');
