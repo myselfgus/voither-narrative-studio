@@ -69,7 +69,7 @@ Sua tarefa é estruturar a transcrição em um formato de relatório narrativo.
 Responda APENAS com um objeto JSON válido, sem nenhum texto adicional ou markdown.
 O JSON deve ter a estrutura de um objeto NarrativeReportData, contendo 'metadata', 'reportTitle', 'keyQuote', e 'sections'.
 {
-  "metadata": { "paciente_id": "${patientId}", "contexto": "Análise de Transcrição", "data_analise": "${new Date().toISOString().split('T')[0]}", "medico_responsavel": "A ser preenchido", "crm": "A ser preenchido" },
+  "metadata": { "paciente_id": "${patientId}", "contexto": "Análise de Transcrição", "data_analise": "${new Date().toISOString().split('T')[0]}", "medico_responsavel": "A ser preenchido", "crm": "A ser preenchido", "total_turnos": 0, "total_palavras": 0, "duracao_estimada_consulta": "N/A", "analista": "Voither HealthOS" },
   "reportTitle": "string (um título criativo e clínico para o relatório)",
   "keyQuote": "string (a citação mais impactante da transcrição)",
   "sections": [
