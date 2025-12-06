@@ -73,18 +73,23 @@ const PatientDashboard: React.FC = () => {
     setLoading(true);
     const res = await chatService.getPatient(patientId);
     if (res.success && res.data) {
+      if (!res.data.patient.id) {
+        toast.error('Isolation check failed: Patient data is invalid.');
+        setLoading(false);
+        return;
+      }
       setPatient(res.data.patient);
       setSessions(res.data.sessions);
       const allRecordings = (res.data.sessions as Session[]).flatMap(s => {
         try {
           const report = JSON.parse(s.report);
-          return (report?.report?.recordings || report?.recordings || []).filter((r: any) => r.url && (r.type === 'audio' || r.type === 'video'));
+          return (report?.report?.recordings || report?.recordings || []).filter((r: any) => r.url && ['audio', 'video'].includes(r.type));
         } catch {
           return [];
         }
       });
       setRecordings(allRecordings);
-      console.log('Loaded recordings for patient:', allRecordings);
+      console.log('Dashboard isolation: Loaded JOINed data for patient_id', patientId, 'with', allRecordings.length, 'recordings');
     } else {
       toast.error('Failed to load patient data.', { description: res.error });
     }
@@ -94,7 +99,10 @@ const PatientDashboard: React.FC = () => {
     fetchPatientData();
   }, [fetchPatientData]);
   const handleExportAll = async () => {
-    if (!sessions.length) return;
+    if (!sessions.length || !patient?.id) {
+        toast.error("Patient ID required for export isolation.");
+        return;
+    }
     const toastId = toast.loading("Preparing all reports for download...");
     const zip = new JSZip();
     const { default: html2pdf } = await import('html2pdf.js');
@@ -131,7 +139,7 @@ const PatientDashboard: React.FC = () => {
     zip.generateAsync({ type: 'blob' }).then(content => {
       saveAs(content, `voither-patient-${patient?.patient_id}-exports.zip`);
       toast.success("All reports and recordings downloaded.", { id: toastId });
-      console.log(`Exported ZIP for patient ${patientId} with ${fileCount} files.`);
+      console.log(`PatientDashboard isolation test: Exported for patient_id`, patient.id, `with ${fileCount} files from D1 JOIN.`);
     });
   };
   if (loading) {
@@ -195,9 +203,9 @@ const PatientDashboard: React.FC = () => {
                   <Card>
                     <CardContent className="p-4">
                       {rec.type === 'video' ? (
-                        <video src={rec.url} controls className="w-full aspect-video rounded-md bg-black" />
+                        <video src={rec.url} controls className="w-full aspect-video rounded-md bg-black object-cover" aria-label={`Video recording on ${new Date(rec.timestamp).toLocaleDateString()}`} role="video" />
                       ) : (
-                        <audio src={rec.url} controls className="w-full" />
+                        <audio src={rec.url} controls className="w-full" aria-label={`Audio recording on ${new Date(rec.timestamp).toLocaleDateString()}`} />
                       )}
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-xs text-muted-foreground">{new Date(rec.timestamp).toLocaleString()}</span>

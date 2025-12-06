@@ -17,6 +17,7 @@ import PdfGenerator from '@/pages/PdfGenerator';
 import Patients from '@/pages/Patients';
 import PatientDashboard from '@/pages/PatientDashboard';
 import Recordings from '@/pages/Recordings';
+import AdminDashboard from '@/pages/AdminDashboard';
 const router = createBrowserRouter([
   {
     path: "/",
@@ -56,6 +57,11 @@ const router = createBrowserRouter([
   {
     path: "/recordings",
     element: <Recordings />,
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/admin",
+    element: <AdminDashboard />,
     errorElement: <RouteErrorBoundary />,
   },
 ]);

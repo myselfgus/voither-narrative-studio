@@ -113,7 +113,7 @@ export class AppController extends DurableObject<Env> {
     await this.ensureLoaded();
     return Array.from(this.sessions.values()).sort((a, b) => b.lastActive - a.lastActive);
   }
-  async setReportData(sessionId: string, data: string): Promise<void> {
+  async setReportData(sessionId: string, data: string, patientId?: string): Promise<void> {
     await this.ensureLoaded();
     if (!this.sessions.has(sessionId)) {
       await this.addSession(sessionId, 'Novo Relatório');
@@ -124,20 +124,24 @@ export class AppController extends DurableObject<Env> {
       try {
         const reportData = JSON.parse(data);
         const inputs = reportData.inputs || {};
-        const patientId = inputs.patientId;
-        const crm = inputs.crm;
-        if (patientId && crm) {
-          const patientResult = await this.env.VOITHER_D1.prepare(`SELECT id FROM Patients WHERE patient_id = ?1 AND crm = ?2`).bind(patientId, crm).first<{ id: string }>();
-          const dbPatientId = patientResult?.id;
-          if (dbPatientId) {
-            const sessionUUID = crypto.randomUUID();
-            await this.env.VOITHER_D1.prepare(`INSERT INTO Sessions (id, patient_id, session_id, title, stages, report, last_active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch()) ON CONFLICT(session_id) DO UPDATE SET title=excluded.title, stages=excluded.stages, report=excluded.report, last_active=unixepoch()`).bind(sessionUUID, dbPatientId, sessionId, `Relatório para ${patientId}`, JSON.stringify(reportData.stages), data).run();
-          }
+        const dbPatientId = patientId || (await this.getPatientIdFromInputs(inputs));
+        if (dbPatientId) {
+          const sessionUUID = crypto.randomUUID();
+          await this.env.VOITHER_D1.prepare(`INSERT INTO Sessions (id, patient_id, session_id, title, stages, report, last_active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch()) ON CONFLICT(session_id) DO UPDATE SET title=excluded.title, stages=excluded.stages, report=excluded.report, last_active=unixepoch()`).bind(sessionUUID, dbPatientId, sessionId, `Relatório para ${inputs.patientId || 'desconhecido'}`, JSON.stringify(reportData.stages), data).run();
         }
       } catch (e) {
         console.error('D1 Sync failed:', e);
       }
     }
+  }
+  private async getPatientIdFromInputs(inputs: any): Promise<string | null> {
+    const patientIdentifier = inputs.patientId;
+    const crm = inputs.crm;
+    if (patientIdentifier && crm && this.env.VOITHER_D1) {
+      const patientResult = await this.env.VOITHER_D1.prepare(`SELECT id FROM Patients WHERE patient_id = ?1 AND crm = ?2`).bind(patientIdentifier, crm).first<{ id: string }>();
+      return patientResult?.id || null;
+    }
+    return null;
   }
   async getReportData(sessionId: string): Promise<string | null> {
     await this.ensureLoaded();

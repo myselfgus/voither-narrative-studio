@@ -107,12 +107,17 @@ class ChatService {
     const finalError = 'An unknown error occurred after multiple retries.';
     return { success: false, output: finalError, fallbackReport: createFallbackReport(finalError) };
   }
-  async createSession(title?: string, reportData?: any): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> {
+  async createSession(title?: string, reportData?: any, patient_id?: string): Promise<{ success: boolean; data?: { sessionId: string }; error?: string }> {
     try {
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, sessionId: this.sessionId, reportData: reportData ? JSON.stringify(reportData) : undefined })
+        body: JSON.stringify({ 
+            title, 
+            sessionId: this.sessionId, 
+            reportData: reportData ? JSON.stringify(reportData) : undefined,
+            patient_id 
+        })
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();

@@ -88,6 +88,44 @@ const Recordings: React.FC = () => {
       localStreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       stream.getTracks().forEach(track => pcRef.current?.addTrack(track, stream));
+      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          mediaChunksRef.current.push(event.data);
+        }
+      };
+      mediaRecorderRef.current.onstop = async () => {
+        const blob = new Blob(mediaChunksRef.current, { type: 'video/webm' });
+        mediaChunksRef.current = [];
+        const formData = new FormData();
+        formData.append('video', blob, 'recording.webm');
+        if (!selectedPatient.id) {
+            toast.error("Patient ID is missing. Cannot upload recording.");
+            return;
+        }
+        toast.info("Uploading recording...");
+        const uploadRes = await fetch(`/api/video/${selectedPatient.id}/upload`, { method: 'PUT', body: formData });
+        if (uploadRes.ok) {
+            const { url } = await uploadRes.json();
+            const sessionRes = await chatService.createSession(`Call Recording for ${selectedPatient.name}`, {
+                report: { recordings: [{ url, type: 'video', timestamp: Date.now() }] }
+            }, selectedPatient.id);
+            if (sessionRes.success && sessionRes.data?.sessionId) {
+                toast.success("Recording uploaded and session created.");
+                console.log('Patient isolation test: Created session with patient_id', selectedPatient.id, 'and triggered transcription with isolation.');
+                await fetch(`/api/transcribe/${sessionRes.data.sessionId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ audioUrl: url, patient_id: selectedPatient.id })
+                });
+            } else {
+                toast.error("Failed to create session for recording.");
+            }
+        } else {
+            toast.error("Failed to upload recording.");
+        }
+      };
+      mediaRecorderRef.current.start();
       const offer = await pcRef.current.createOffer();
       await pcRef.current.setLocalDescription(offer);
       await fetch(`/api/webrtc/signal/${roomIdRef.current}`, {
@@ -130,6 +168,7 @@ const Recordings: React.FC = () => {
       await loadPatients();
       const newPatient = { ...data, id: res.data.id };
       setSelectedPatient(newPatient);
+      console.log('Patient isolation: Upserted to D1 with patient_id', res.data.id);
       newPatientFormRef.current?.reset();
       document.getElementById('close-patient-dialog')?.click();
     } else {
@@ -150,8 +189,9 @@ const Recordings: React.FC = () => {
                 <CardDescription>Choose an existing patient.</CardDescription>
                 <Dialog>
                   <DialogTrigger asChild><Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-2" /> New</Button></DialogTrigger>
-                  <DialogContent>
+                  <DialogContent aria-describedby="dialog-desc">
                     <DialogHeader><DialogTitle>Create New Patient</DialogTitle></DialogHeader>
+                    <p id="dialog-desc" className="sr-only">Create a new patient record for media recordings and analysis.</p>
                     <form ref={newPatientFormRef} onSubmit={handleCreatePatient} className="space-y-4">
                       <Input name="patient_id" placeholder="Patient ID (optional, auto-generated)" />
                       <Input name="name" placeholder="Full Name" required />

@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Bot, List, Download, Menu, FileText, Users, Mic } from 'lucide-react';
+import { Home, Bot, List, Download, Menu, FileText, Users, Mic, Settings } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger, SheetClose } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-const navItems = [
+const baseNavItems = [
   { href: '/', label: 'Dashboard', icon: Home },
   { href: '/builder', label: 'Pipeline', icon: Bot },
   { href: '/recordings', label: 'Recordings', icon: Mic },
@@ -39,6 +39,16 @@ const NavLink = ({ href, label, icon: Icon, isMobile = false }: { href: string; 
   );
 };
 export function Navigation() {
+  const [showAdmin, setShowAdmin] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('admin') === '1' || localStorage.getItem('adminToken')) {
+      setShowAdmin(true);
+    }
+  }, []);
+  const navItems = showAdmin
+    ? [...baseNavItems, { href: '/admin', label: 'Admin', icon: Settings }]
+    : baseNavItems;
   return (
     <motion.header
       initial={{ y: -100 }}
