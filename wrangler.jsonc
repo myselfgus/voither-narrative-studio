@@ -33,13 +33,16 @@
 	"observability": {
 		"enabled": true
 	},
-	"d1_databases": [
-		{
-			"binding": "VOITHER_D1",
-			"database_name": "voither-d1",
-			"database_id": "your-db-id"
-		}
-	],
+	// D1 database binding - configure via Cloudflare Dashboard or uncomment with your real database_id
+	// To use D1: Go to Cloudflare Dashboard > Pages > your-project > Settings > Functions > D1 database bindings
+	// Or uncomment and replace YOUR_REAL_DATABASE_ID with your actual D1 database ID:
+	// "d1_databases": [
+	// 	{
+	// 		"binding": "VOITHER_D1",
+	// 		"database_name": "voither-d1",
+	// 		"database_id": "YOUR_REAL_DATABASE_ID"
+	// 	}
+	// ],
 	"r2_buckets": [
 		{
 			"binding": "VOITHER_R2",
