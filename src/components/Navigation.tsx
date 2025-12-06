@@ -17,10 +17,21 @@ const NavLink = ({ href, label, icon: Icon, isMobile = false }: { href: string; 
   const location = useLocation();
   const isActive = location.pathname === href || (href !== '/' && location.pathname.startsWith(href));
   return (
-    <Button asChild variant={isActive ? "secondary" : "ghost"} className={cn("justify-start", isMobile && "w-full")}>
+    <Button asChild variant="ghost" className={cn(
+      "justify-start relative transition-colors duration-200 hover:text-primary",
+      isActive ? "text-primary font-semibold" : "text-muted-foreground",
+      isMobile && "w-full"
+    )}>
       <Link to={href}>
         <Icon className="mr-2 h-4 w-4" />
         {label}
+        {isActive && !isMobile && (
+          <motion.div
+            className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
+            layoutId="underline"
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          />
+        )}
       </Link>
     </Button>
   );
@@ -41,7 +52,7 @@ export function Navigation() {
               <span className="font-display font-light text-text-secondary hidden sm:inline">HealthOS</span>
             </Link>
           </div>
-          <nav className="hidden md:flex items-center gap-2">
+          <nav className="hidden md:flex items-center gap-1">
             {navItems.map(item => (
               <NavLink key={item.href} {...item} />
             ))}
@@ -56,14 +67,20 @@ export function Navigation() {
                     <span className="sr-only">Open menu</span>
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-[240px]">
-                  <div className="flex flex-col gap-4 py-6">
+                <SheetContent side="right" className="w-[240px] p-0">
+                  <motion.div
+                    initial={{ x: '100%' }}
+                    animate={{ x: 0 }}
+                    exit={{ x: '100%' }}
+                    transition={{ duration: 0.3, ease: 'easeInOut' }}
+                    className="flex flex-col gap-2 p-4 pt-10"
+                  >
                     {navItems.map(item => (
                       <SheetClose asChild key={item.href}>
                          <NavLink {...item} isMobile />
                       </SheetClose>
                     ))}
-                  </div>
+                  </motion.div>
                 </SheetContent>
               </Sheet>
             </div>
