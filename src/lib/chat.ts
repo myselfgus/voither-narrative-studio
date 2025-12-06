@@ -210,12 +210,16 @@ class ChatService {
       return { success: false, error: 'Failed to get patient details' };
     }
   }
-  async createPatient(patientData: { patient_id: string; name: string; context?: string; crm: string; metadata?: any }): Promise<{ success: boolean; data?: { id: string }; error?: string }> {
+  async createPatient(patientData: { patient_id: string; name: string; context?: string; crm?: string; metadata?: any }): Promise<{ success: boolean; data?: { id: string }; error?: string }> {
+    const { patient_id, name, context, crm, metadata } = patientData;
+    if (crm) {
+      console.warn('Clinician CRM ignored during patient creation - will be stored in session metadata.');
+    }
     try {
       const response = await fetch('/api/patients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patientData)
+        body: JSON.stringify({ patient_id, name, context, ...(metadata && { metadata }) })
       });
       if (!response.ok) {
         const err = await response.json();

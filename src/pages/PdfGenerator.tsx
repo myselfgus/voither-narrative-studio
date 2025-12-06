@@ -29,7 +29,7 @@ const reportSchema = z.object({
   reportTitle: z.string().min(1, "reportTitle is required"),
   keyQuote: z.string().min(1, "keyQuote is required"),
   sections: z.array(z.any()).min(1, "sections array must not be empty"),
-});
+}).passthrough();
 const PdfGenerator: React.FC = () => {
   const [rawJson, setRawJson] = useState<any | null>(null);
   const [enrichedReport, setEnrichedReport] = useState<NarrativeReportData | null>(null);
@@ -49,16 +49,22 @@ const PdfGenerator: React.FC = () => {
       setRawJson(reportData);
       setEnrichedReport(reportData);
       toast.success("JSON validado e carregado com sucesso.");
-      // Independent patient creation
-      const { metadata } = reportData;
+      const { paciente_id, contexto, medico_responsavel, crm } = reportData.metadata;
+      // Create patient record (without clinician CRM)
       await chatService.createPatient({
-          patient_id: metadata.paciente_id,
-          name: metadata.medico_responsavel, // Assuming doctor's name for patient name for now
-          crm: metadata.crm,
-          context: metadata.contexto
+          patient_id: paciente_id,
+          name: medico_responsavel, // Using doctor's name as a fallback for patient name if needed elsewhere
+          context: contexto
       });
-      // Save raw data to a new session
-      await chatService.createSession(`Relatório para ${metadata.paciente_id}`, { report: reportData });
+      // Save raw data to a new session, ensuring clinician details are in metadata
+      const sessionData = {
+        ...reportData,
+        metadata: {
+          ...reportData.metadata,
+          clinician: { name: medico_responsavel, crm }
+        }
+      };
+      await chatService.createSession(`Relatório para ${paciente_id}`, { report: sessionData });
     } else {
       toast.error("Esquema JSON inválido.", {
         description: result.error.format()._errors.join('; '),

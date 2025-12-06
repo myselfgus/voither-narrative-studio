@@ -1,20 +1,17 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Mic, UserPlus, Loader2, Video, VideoOff, Search, PhoneOff, ScreenShare, ScreenShareOff, MicOff } from 'lucide-react';
+import { Mic, UserPlus, Loader2, Video, VideoOff, PhoneOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { chatService } from '@/lib/chat';
-import { useDebounce } from 'react-use';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-type CallState = 'idle' | 'calling' | 'connected' | 'ended';
 interface Patient { id: string; patient_id: string; name: string; crm: string; }
 interface ActiveCall {
   patient: Patient;
@@ -31,19 +28,53 @@ const Recordings: React.FC = () => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [activeCalls, setActiveCalls] = useState<Map<string, ActiveCall>>(new Map());
   const localVideoRefs = useRef<Map<string, HTMLVideoElement | null>>(new Map());
-  const remoteVideoRefs = useRef<Map<string, HTMLVideoElement | null>>(new Map());
-  const [_, setTick] = useState(0); // For re-rendering timer
+  const [_, setTick] = useState(0);
+  const [newPatientId, setNewPatientId] = useState('');
+  const [newPatientName, setNewPatientName] = useState('');
+  const [newPatientContext, setNewPatientContext] = useState('');
+  const [isCreatingPatient, setIsCreatingPatient] = useState(false);
+  const [isNewPatientDialogOpen, setIsNewPatientDialogOpen] = useState(false);
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(timer);
   }, []);
+  const fetchPatients = useCallback(async () => {
+    const res = await chatService.listPatients();
+    if (res.success && res.data) {
+      setPatients(res.data);
+    }
+  }, []);
+  useEffect(() => {
+    fetchPatients();
+  }, [fetchPatients]);
+  const handleCreatePatient = async () => {
+    if (!newPatientId || !newPatientName) {
+      toast.error("Patient ID and Name are required.");
+      return;
+    }
+    setIsCreatingPatient(true);
+    const res = await chatService.createPatient({
+      patient_id: newPatientId,
+      name: newPatientName,
+      context: newPatientContext,
+    });
+    if (res.success) {
+      toast.success("Patient created successfully.");
+      await fetchPatients();
+      setNewPatientId('');
+      setNewPatientName('');
+      setNewPatientContext('');
+      setIsNewPatientDialogOpen(false);
+    } else {
+      toast.error("Failed to create patient.", { description: res.error });
+    }
+    setIsCreatingPatient(false);
+  };
   const startCall = async () => {
     if (!selectedPatient) { toast.error("Please select a patient."); return; }
     if (activeCalls.has(selectedPatient.id)) { toast.info("Call already active for this patient."); return; }
     if (activeCalls.size >= 3) { toast.error("Maximum of 3 active calls reached."); return; }
     try {
-      // Ensure patient exists before starting call
-      await chatService.createPatient({ patient_id: selectedPatient.patient_id, name: selectedPatient.name, crm: selectedPatient.crm });
       const res = await fetch(`/api/webrtc/join?sessionId=${crypto.randomUUID()}`).then(r => r.json());
       const pc = new RTCPeerConnection({ iceServers: res.iceServers });
       const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -81,11 +112,7 @@ const Recordings: React.FC = () => {
     const uploadRes = await fetch(`/api/video/${call.patient.id}/upload`, { method: 'PUT', body: formData });
     if (uploadRes.ok) {
       const { url } = await uploadRes.json();
-      const newSession = await chatService.createSession(`Call Recording for ${call.patient.name}`, { report: { recordings: [{ url, type: 'video', timestamp: Date.now() }] } }, call.patient.id);
-      if (newSession.success && newSession.data?.sessionId) {
-        // Mock transcription trigger
-        fetch(`/api/transcribe/${newSession.data.sessionId}`, { method: 'POST', body: JSON.stringify({ url, patient_id: call.patient.id }) }).catch(e => console.warn('Transcription trigger failed:', e));
-      }
+      await chatService.createSession(`Call Recording for ${call.patient.name}`, { report: { recordings: [{ url, type: 'video', timestamp: Date.now() }] } }, call.patient.id);
       toast.success("Recording saved.");
       console.log('Patient isolation test: Video wall recording for patient_id', call.patient.id);
     } else {
@@ -106,7 +133,7 @@ const Recordings: React.FC = () => {
           <Card className="glass rounded-macos">
             <CardHeader><CardTitle>Start a Call</CardTitle></CardHeader>
             <CardContent>
-              <Select onValueChange={val => setPatients(p => { setSelectedPatient(p.find(i => i.id === val) || null); return p; })}>
+              <Select onValueChange={val => setSelectedPatient(patients.find(p => p.id === val) || null)}>
                 <SelectTrigger><SelectValue placeholder="Select a patient..." /></SelectTrigger>
                 <SelectContent>{patients.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
               </Select>
@@ -133,7 +160,7 @@ const Recordings: React.FC = () => {
           </Card>
         </div>
       </div>
-      <Dialog>
+      <Dialog open={isNewPatientDialogOpen} onOpenChange={setIsNewPatientDialogOpen}>
         <DialogTrigger asChild>
             <Button variant="outline" className="fixed bottom-24 right-8"><UserPlus className="w-4 h-4 mr-2" /> New Patient</Button>
         </DialogTrigger>
@@ -141,13 +168,29 @@ const Recordings: React.FC = () => {
             <DialogHeader>
                 <DialogTitle id="new-patient-title">Create New Patient</DialogTitle>
                 <DialogDescription id="new-patient-desc">
-                    Enter details to add a new patient record.
+                    Enter patient details to add a new patient record.
                 </DialogDescription>
             </DialogHeader>
-            {/* New Patient Form would go here */}
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="new-patient-id">Patient ID</Label>
+                <Input id="new-patient-id" placeholder="e.g., GABRIEL_MENDES_01" value={newPatientId} onChange={e => setNewPatientId(e.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="new-patient-name">Patient Name</Label>
+                <Input id="new-patient-name" placeholder="e.g., Gabriel Mendes" value={newPatientName} onChange={e => setNewPatientName(e.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="new-patient-context">Context / Notes</Label>
+                <Textarea id="new-patient-context" placeholder="e.g., Análise Narrativa de Profundidade" value={newPatientContext} onChange={e => setNewPatientContext(e.target.value)} rows={3} />
+              </div>
+            </div>
             <DialogFooter>
-                <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-                <Button>Save Patient</Button>
+                <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                <Button onClick={handleCreatePatient} disabled={isCreatingPatient}>
+                  {isCreatingPatient && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Create Patient
+                </Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>
