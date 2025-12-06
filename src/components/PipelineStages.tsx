@@ -18,7 +18,7 @@ const stageDetails = {
   VDLP: { icon: BrainCircuit, description: 'Vocabulário Descritivo de Linguagem Psicológica' },
   GEM: { icon: Gem, description: 'Granularidade Emocional' },
   Narrative: { icon: BookOpen, description: 'Estruturação Narrativa' },
-  SOAP: { icon: Stethoscope, description: 'Notas Cl��nicas SOAP' },
+  SOAP: { icon: Stethoscope, description: 'Notas Clínicas SOAP' },
 };
 interface PipelineStagesProps {
   stages: PipelineStage[];
@@ -26,30 +26,26 @@ interface PipelineStagesProps {
 }
 const PipelineStages: React.FC<PipelineStagesProps> = ({ stages, patientId }) => {
   const handleDownloadJson = (stage: PipelineStage) => {
+    let content: string;
+    let extension: string;
     try {
-      const formattedJson = JSON.stringify(JSON.parse(stage.output), null, 2);
-      const blob = new Blob([formattedJson], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `voither-${stage.name.toLowerCase()}-${patientId || 'report'}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Prettify if it's a valid JSON string
+      content = JSON.stringify(JSON.parse(stage.output), null, 2);
+      extension = 'json';
     } catch (e) {
-      console.error("Failed to parse or download JSON", e);
-      // Fallback for non-json content
-      const blob = new Blob([stage.output], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `voither-${stage.name.toLowerCase()}-${patientId || 'report'}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Fallback for non-JSON content
+      content = stage.output;
+      extension = 'txt';
     }
+    const blob = new Blob([content], { type: extension === 'json' ? 'application/json' : 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `voither-${stage.name.toLowerCase()}-${patientId || 'report'}.${extension}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
   const getBadgeVariant = (status: PipelineStage['status']) => {
     switch (status) {
@@ -125,7 +121,7 @@ const PipelineStages: React.FC<PipelineStagesProps> = ({ stages, patientId }) =>
                     onClick={() => handleDownloadJson(stage)}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    JSON
+                    Download
                   </Button>
                 </div>
               </CardContent>

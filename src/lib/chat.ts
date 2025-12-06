@@ -1,5 +1,4 @@
 import type { SessionInfo } from '../../worker/types';
-import { NarrativeReportData } from '@/types/report';
 class ChatService {
   private sessionId: string;
   private baseUrl: string;
@@ -14,6 +13,13 @@ class ChatService {
     this.sessionId = sessionId;
     this.baseUrl = `/api/chat/${this.sessionId}`;
   }
+  newSession(): void {
+    this.sessionId = crypto.randomUUID();
+    this.baseUrl = `/api/chat/${this.sessionId}`;
+  }
+  switchSession(sessionId: string): void {
+    this.setSessionId(sessionId);
+  }
   async sendMessage(
     message: string,
     model: string = 'voither',
@@ -21,7 +27,7 @@ class ChatService {
     options?: { data?: any; signal?: AbortSignal }
   ): Promise<{ success: boolean; output?: string }> {
     try {
-      if (options?.data && JSON.stringify(options.data).length > 1024 * 1024) {
+      if (options?.data && JSON.stringify(options.data).length > 1024 * 1024) { // 1MB limit
         throw new Error("Payload too large. Please keep transcriptions under 1MB.");
       }
       const response = await fetch(`${this.baseUrl}/chat`, {
@@ -108,7 +114,7 @@ class ChatService {
     try {
       const response = await fetch(`/api/sessions/${sessionId}/data`);
       if (!response.ok) {
-        const err = await response.json();
+        const err = await response.json().catch(() => ({ error: 'Report not found' }));
         return { success: false, error: err.error || 'Report not found' };
       }
       return await response.json();

@@ -1,9 +1,9 @@
-import { FileText, BrainCircuit, Gem, BookOpen, Stethoscope, FileJson } from 'lucide-react';
+import { FileText, BrainCircuit, Gem, BookOpen, Stethoscope } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Toaster } from '@/components/ui/sonner';
 import { Link } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { motion } from 'framer-motion';
 const pipelineStages = [
   { name: 'ASL', icon: FileText, description: 'Extrai elementos semânticos e linguísticos da fala.' },
@@ -29,12 +29,12 @@ export function HomePage() {
           <div className="py-16 md:py-24 lg:py-32 text-center">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               <h1 className="font-display font-bold text-5xl md:text-6xl lg:text-7xl text-text-primary leading-tight tracking-tighter">
-                Pipeline de Análise de Transcrições
+                Pipeline de Análise de Transcri��ões
               </h1>
               <p className="mt-6 max-w-3xl mx-auto text-lg text-text-secondary">
                 Transforme transcrições de consultas em relatórios clínicos estruturados através de 5 etapas de análise com IA.
               </p>
-              <div className="mt-10 flex justify-center gap-4">
+              <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
                 <Button asChild size="lg" className="bg-text-primary text-surface hover:bg-text-secondary">
                   <Link to="/builder">
                     <FileText className="mr-2 h-5 w-5" />
@@ -51,7 +51,7 @@ export function HomePage() {
           </div>
           <div className="pb-16 md:pb-24 lg:pb-32">
             <h2 className="text-3xl font-bold text-center mb-12 font-display">Como Funciona</h2>
-            <div className="grid md:grid-cols-3 lg:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
               {pipelineStages.map((stage, index) => (
                 <motion.div
                   key={stage.name}
@@ -60,15 +60,15 @@ export function HomePage() {
                   viewport={{ once: true }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
                 >
-                  <Card className="h-full">
-                    <CardHeader className="items-center text-center">
+                  <Card className="h-full text-center">
+                    <CardHeader className="items-center">
                       <div className="p-3 bg-surface-subtle rounded-full mb-2">
                         <stage.icon className="w-6 h-6 text-text-secondary" />
                       </div>
                       <CardTitle>{stage.name}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-sm text-text-secondary text-center">{stage.description}</p>
+                      <p className="text-sm text-text-secondary">{stage.description}</p>
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -80,7 +80,7 @@ export function HomePage() {
       <footer className="bg-surface dark:bg-background border-t">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 text-center text-sm text-text-tertiary">
           <p>
-            Construído com ❤�� na Cloudflare.
+            Construído com ❤️ na Cloudflare.
           </p>
           <p className="mt-2 text-xs opacity-75">
             Nota: O uso dos recursos de IA está sujeito a limites de requisições para garantir a disponibilidade do serviço.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { Home } from 'lucide-react';
 import { Toaster, toast } from '@/components/ui/sonner';
@@ -32,15 +32,14 @@ const ReportBuilder: React.FC = () => {
   const [inputs, setInputs] = useState<Partial<TranscriptionInputs>>({});
   const [stages, setStages] = useState<PipelineStage[]>(initialStages);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const loadSession = useCallback(async (id: string) => {
     const res = await chatService.loadReportFromSession(id);
     if (res.success && res.data) {
-      const sessionData = res.data as unknown as SessionData;
+      const sessionData = res.data as SessionData;
       setInputs(sessionData.inputs || {});
       setStages(sessionData.stages || initialStages);
     } else {
-      // New session or error, reset state
       setInputs({});
       setStages(initialStages);
       navigate('/builder', { replace: true });
@@ -68,12 +67,12 @@ const ReportBuilder: React.FC = () => {
   const saveSession = useCallback(async () => {
     if (sessionId) {
       const dataToSave: SessionData = { inputs, stages };
-      await chatService.saveReportToSession(sessionId, dataToSave as any);
+      await chatService.saveReportToSession(sessionId, dataToSave);
     }
   }, [sessionId, inputs, stages]);
   useEffect(() => {
     const handler = setTimeout(() => {
-      if (Object.keys(inputs).length > 0) {
+      if (Object.keys(inputs).length > 0 || stages.some(s => s.status !== 'pending')) {
         saveSession();
       }
     }, 1000); // Debounce save
@@ -81,45 +80,52 @@ const ReportBuilder: React.FC = () => {
   }, [inputs, stages, saveSession]);
   const handleStartAnalysis = async (data: TranscriptionInputs) => {
     setIsProcessing(true);
-    const controller = new AbortController();
-    setAbortController(controller);
-    if (!sessionId) {
+    abortControllerRef.current = new AbortController();
+    let currentSessionId = sessionId;
+    if (!currentSessionId) {
       const newId = chatService.getSessionId();
-      setSessionId(newId);
       chatService.setSessionId(newId);
       await chatService.createSession(`Análise de ${data.patientId}`);
+      setSessionId(newId);
+      currentSessionId = newId;
       navigate(`/builder?session=${newId}`, { replace: true });
     }
-    setStages(initialStages); // Reset stages on new analysis
-    let currentTranscription = data.transcription;
-    for (let i = 0; i < initialStages.length; i++) {
-      const stageName = initialStages[i].name;
-      setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'running', progress: 50 } : s));
-      const promptFn = stagePromptMap[stageName];
-      const prompt = promptFn(currentTranscription, data.patientId);
-      const { success, output } = await chatService.sendMessage(prompt, 'voither', (chunk) => {
-        setStages(prev => prev.map(s => s.name === stageName ? { ...s, output: s.output + chunk } : s));
-      }, { signal: controller.signal });
-      if (controller.signal.aborted) {
-        toast.info("Análise abortada.");
-        setStages(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending', progress: 0 } : s));
-        break;
+    setStages(initialStages.map(s => ({...s, output: ''}))); // Reset stages
+    toast.info("Iniciando análise...", { description: "O uso de IA está sujeito a limites de requisição." });
+    try {
+      let currentTranscription = data.transcription;
+      for (let i = 0; i < initialStages.length; i++) {
+        if (abortControllerRef.current.signal.aborted) break;
+        const stageName = initialStages[i].name;
+        setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'running', progress: 50, output: '' } : s));
+        const promptFn = stagePromptMap[stageName];
+        const prompt = promptFn(currentTranscription, data.patientId);
+        const { success, output } = await chatService.sendMessage(prompt, 'voither', (chunk) => {
+          setStages(prev => prev.map(s => s.name === stageName ? { ...s, output: s.output + chunk } : s));
+        }, { signal: abortControllerRef.current.signal });
+        if (abortControllerRef.current.signal.aborted) {
+          toast.info("Análise abortada.");
+          setStages(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending', progress: 0 } : s));
+          break;
+        }
+        if (success && output) {
+          setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'complete', progress: 100, output } : s));
+        } else {
+          setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'error', progress: 100, output: "Falha na análise." } : s));
+          toast.error(`Erro na etapa ${stageName}.`);
+          break;
+        }
       }
-      if (success && output) {
-        setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'complete', progress: 100, output } : s));
-        // For now, we pass the original transcription to all stages.
-        // A more advanced flow could pass the output of one stage to the next.
-      } else {
-        setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'error', progress: 100, output: "Falha na análise." } : s));
-        toast.error(`Erro na etapa ${stageName}.`);
-        break;
-      }
+    } catch (error) {
+      console.error("An error occurred during analysis:", error);
+      toast.error("Ocorreu um erro inesperado durante a análise.");
+    } finally {
+      setIsProcessing(false);
+      abortControllerRef.current = null;
     }
-    setIsProcessing(false);
-    setAbortController(null);
   };
   return (
-    <div className="min-h-screen bg-surface-muted dark:bg-background">
+    <div className="min-h-screen flex flex-col bg-surface-muted dark:bg-background">
       <header className="sticky top-0 z-20 bg-background/80 backdrop-blur-lg border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -137,10 +143,10 @@ const ReportBuilder: React.FC = () => {
           </div>
         </div>
       </header>
-      <main>
+      <main className="flex-grow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="py-8 md:py-10 lg:py-12">
-            <div className="grid lg:grid-cols-2 gap-8">
+            <div className="flex flex-col lg:grid lg:grid-cols-2 gap-8">
               <TranscriptionInput
                 initialData={inputs}
                 onStartAnalysis={handleStartAnalysis}
