@@ -1,5 +1,5 @@
 # Voither Narrative Studio
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/myselfgus/voither-narrative-studio)
 Voither Narrative Studio is a polished web application built with Cloudflare Workers that enables healthcare professionals to upload pre-formatted clinical JSON data, validate and enrich it using an orchestrated LLM via the Cloudflare AI Gateway (alias: "voither"), and generate multi-page, print-ready A4 PDF reports. The system emphasizes a separate cover page and body pages with persistent headers and footers, ensuring compliance with medical documentation standards.
 This project provides an intuitive interface for JSON upload, LLM-driven content normalization, inline editing, live A4 preview, and seamless PDF export. It leverages Cloudflare's edge infrastructure for secure, scalable AI processing without exposing API keys to the client.
 ## Features
@@ -101,6 +101,6 @@ Run ESLint to check for code quality issues:
 ```sh
 bun run lint
 ```
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/myselfgus/voither-narrative-studio)
 ## License
 MIT License. See [LICENSE](LICENSE) for details.
