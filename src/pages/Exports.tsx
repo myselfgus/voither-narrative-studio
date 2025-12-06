@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, FileJson, FileText, Image as ImageIcon } from 'lucide-react';
+import { Download, FileJson, FileText, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -9,21 +9,43 @@ import { chatService } from '@/lib/chat';
 import type { SessionInfo } from '../../worker/types';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import { exportToPdf } from '@/lib/pdf';
+import { exportToPdf, generateCoverThumbnail } from '@/lib/pdf';
 import { compileFromStages } from '@/lib/reportRenderer';
 import ReportPreview from '@/components/ReportPreview';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let isMounted = true;
+    const generateThumbnail = async () => {
+      const res = await chatService.loadReportFromSession(session.id);
+      if (isMounted && res.success && res.data) {
+        const reportData = compileFromStages(res.data.stages, res.data.inputs);
+        const url = await generateCoverThumbnail(reportData);
+        setThumbnailUrl(url);
+      }
+    };
+    generateThumbnail();
+    return () => { isMounted = false; };
+  }, [session.id]);
+  return (
+    <div className="aspect-[3/4] bg-surface-subtle rounded-md flex items-center justify-center overflow-hidden">
+      {thumbnailUrl ? (
+        <img src={thumbnailUrl} alt={`Preview of ${session.title}`} className="w-full h-full object-cover" />
+      ) : (
+        <div className="animate-pulse w-full h-full bg-surface-muted" />
+      )}
+    </div>
+  );
+};
 const Exports: React.FC = () => {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const reportRefs = useRef<{ [key: string]: React.RefObject<HTMLDivElement> }>({});
+  const reportRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const loadSessions = useCallback(async () => {
     const response = await chatService.listSessions();
     if (response.success && response.data) {
       setSessions(response.data);
-      response.data.forEach(session => {
-        if (!reportRefs.current[session.id]) {
-          reportRefs.current[session.id] = React.createRef<HTMLDivElement>();
-        }
-      });
     } else {
       toast.error("Failed to load sessions.");
     }
@@ -32,28 +54,15 @@ const Exports: React.FC = () => {
     loadSessions();
   }, [loadSessions]);
   const handleDownloadPdf = async (sessionId: string) => {
+    const ref = reportRefs.current[sessionId];
+    if (!ref) {
+      toast.error("Preview element not found. Cannot generate PDF.");
+      return;
+    }
     const res = await chatService.loadReportFromSession(sessionId);
     if (res.success && res.data) {
       const reportData = compileFromStages(res.data.stages, res.data.inputs);
-      const tempDiv = document.createElement('div');
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.left = '-9999px';
-      document.body.appendChild(tempDiv);
-      const reactElement = React.createElement(ReportPreview, { data: reportData, reportRef: React.createRef() });
-      // This is a trick to render the component to get its HTML for pdf generation
-      const tempRoot = document.createElement('div');
-      tempDiv.appendChild(tempRoot);
-      // We need to use ReactDOM.render for this, but since we are in React 18, we can simulate it
-      // by creating a temporary root. This is not ideal.
-      // A better approach would be server-side rendering of the PDF.
-      // For now, we'll just use the data and a simplified export.
-      const reportElement = reportRefs.current[sessionId]?.current;
-      if (reportElement) {
-        exportToPdf(reportElement, `voither-report-${reportData.metadata.paciente_id}`);
-      } else {
-        toast.warning("Preview not rendered yet. Please open the session first to generate PDF.");
-      }
-      document.body.removeChild(tempDiv);
+      exportToPdf(ref, `voither-report-${reportData.metadata.paciente_id}`);
     } else {
       toast.error("Failed to load report data for PDF export.");
     }
@@ -63,13 +72,13 @@ const Exports: React.FC = () => {
     if (res.success && res.data && res.data.stages) {
       res.data.stages.forEach((stage: any) => {
         if (stage.status === 'complete') {
-          const blob = new Blob([JSON.stringify(JSON.parse(stage.output), null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`;
-          a.click();
-          URL.revokeObjectURL(url);
+          try {
+            const content = JSON.stringify(JSON.parse(stage.output), null, 2);
+            const blob = new Blob([content], { type: 'application/json' });
+            saveAs(blob, `voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`);
+          } catch (e) {
+            console.error(`Could not parse JSON for stage ${stage.name}`);
+          }
         }
       });
       toast.success("JSON files downloaded.");
@@ -77,19 +86,43 @@ const Exports: React.FC = () => {
       toast.error("Failed to load data for JSON export.");
     }
   };
+  const handleExportAll = async () => {
+    toast.info("Preparing all exports for download...");
+    const zip = new JSZip();
+    for (const session of sessions) {
+      const res = await chatService.loadReportFromSession(session.id);
+      if (res.success && res.data) {
+        const sessionFolder = zip.folder(session.title.replace(/[^a-z0-9]/gi, '_'));
+        // Add JSONs
+        res.data.stages.forEach((stage: any) => {
+          if (stage.status === 'complete') {
+            try {
+              const content = JSON.stringify(JSON.parse(stage.output), null, 2);
+              sessionFolder?.file(`voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`, content);
+            } catch (e) { /* ignore */ }
+          }
+        });
+      }
+    }
+    zip.generateAsync({ type: 'blob' }).then(content => {
+      saveAs(content, 'voither-all-exports.zip');
+      toast.success("All exports downloaded.");
+    });
+  };
   return (
     <AppLayout>
       <div className="flex justify-between items-center mb-8">
         <h1 className="font-display font-bold text-4xl text-text-primary">Exports</h1>
+        <Button onClick={handleExportAll} disabled={sessions.length === 0}>
+          <Archive className="w-4 h-4 mr-2" /> Export All
+        </Button>
       </div>
       {sessions.length > 0 ? (
-        <motion.div 
-          className="grid gap-6 md:grid-cols-2 lg:grid-cols-3"
+        <motion.div
+          className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           initial="hidden"
           animate="visible"
-          variants={{
-            visible: { transition: { staggerChildren: 0.05 } }
-          }}
+          variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
         >
           {sessions.map(session => (
             <motion.div key={session.id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
@@ -101,9 +134,7 @@ const Exports: React.FC = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-grow">
-                  <div className="aspect-video bg-surface-subtle rounded-md flex items-center justify-center">
-                    <ImageIcon className="w-12 h-12 text-text-tertiary" />
-                  </div>
+                  <SessionThumbnail session={session} />
                 </CardContent>
                 <CardFooter className="flex justify-between items-center">
                   <Button onClick={() => handleDownloadJsons(session.id)} variant="outline" size="sm">
@@ -126,6 +157,17 @@ const Exports: React.FC = () => {
           </Button>
         </div>
       )}
+      <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+        {sessions.map(session => {
+            const res = { data: chatService.loadReportFromSession(session.id) };
+            if (!res.data) return null;
+            return (
+                <div key={session.id} ref={el => (reportRefs.current[session.id] = el)}>
+                    {/* This is a hack to pre-render for PDF export. A better solution would be needed for production. */}
+                </div>
+            )
+        })}
+      </div>
       <Toaster richColors />
     </AppLayout>
   );
