@@ -63,6 +63,7 @@
     "html2pdf.js": "^0.10.1",
     "immer": "^10.1.1",
     "input-otp": "^1.4.2",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.525.0",
     "mcp-client": "^1.4.0",
     "mcp-remote": "^0.1.18",
