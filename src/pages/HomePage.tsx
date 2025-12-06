@@ -1,148 +1,77 @@
-// Home page of the app, Currently a demo page for demonstration.
-// Please rewrite this file to implement your own logic. Do not replace or delete it, simply rewrite this HomePage.tsx file.
-import { useEffect } from 'react'
-import { Sparkles } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { Toaster, toast } from '@/components/ui/sonner'
-import { create } from 'zustand'
-import { useShallow } from 'zustand/react/shallow'
-import { AppLayout } from '@/components/layout/AppLayout'
-
-// Timer store: independent slice with a clear, minimal API, for demonstration
-type TimerState = {
-  isRunning: boolean;
-  elapsedMs: number;
-  start: () => void;
-  pause: () => void;
-  reset: () => void;
-  tick: (deltaMs: number) => void;
-}
-
-const useTimerStore = create<TimerState>((set) => ({
-  isRunning: false,
-  elapsedMs: 0,
-  start: () => set({ isRunning: true }),
-  pause: () => set({ isRunning: false }),
-  reset: () => set({ elapsedMs: 0, isRunning: false }),
-  tick: (deltaMs) => set((s) => ({ elapsedMs: s.elapsedMs + deltaMs })),
-}))
-
-// Counter store: separate slice to showcase multiple stores without coupling
-type CounterState = {
-  count: number;
-  inc: () => void;
-  reset: () => void;
-}
-
-const useCounterStore = create<CounterState>((set) => ({
-  count: 0,
-  inc: () => set((s) => ({ count: s.count + 1 })),
-  reset: () => set({ count: 0 }),
-}))
-
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
+import { FileJson, Bot, GitBranch } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { Toaster } from '@/components/ui/sonner';
+import { Link } from 'react-router-dom';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 export function HomePage() {
-  // Select only what is needed to avoid unnecessary re-renders
-  const { isRunning, elapsedMs } = useTimerStore(
-    useShallow((s) => ({ isRunning: s.isRunning, elapsedMs: s.elapsedMs })),
-  )
-  const start = useTimerStore((s) => s.start)
-  const pause = useTimerStore((s) => s.pause)
-  const resetTimer = useTimerStore((s) => s.reset)
-  const count = useCounterStore((s) => s.count)
-  const inc = useCounterStore((s) => s.inc)
-  const resetCount = useCounterStore((s) => s.reset)
-
-  // Drive the timer only while running; avoid update-depth issues with a scoped RAF
-  useEffect(() => {
-    if (!isRunning) return
-    let raf = 0
-    let last = performance.now()
-    const loop = () => {
-      const now = performance.now()
-      const delta = now - last
-      last = now
-      // Read store API directly to keep effect deps minimal and stable
-      useTimerStore.getState().tick(delta)
-      raf = requestAnimationFrame(loop)
-    }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [isRunning])
-
-  const onPleaseWait = () => {
-    inc()
-    if (!isRunning) {
-      start()
-      toast.success('Building your app…', {
-        description: 'Hang tight, we\'re setting everything up.',
-      })
-    } else {
-      pause()
-      toast.info('Taking a short pause', {
-        description: 'We\'ll continue shortly.',
-      })
-    }
-  }
-
-  const formatted = formatDuration(elapsedMs)
-
   return (
-    // <AppLayout> Uncomment this if you want to use the sidebar
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-4 overflow-hidden relative">
-        <ThemeToggle />
-        <div className="absolute inset-0 bg-gradient-rainbow opacity-10 dark:opacity-20 pointer-events-none" />
-        <div className="text-center space-y-8 relative z-10 animate-fade-in">
-          <div className="flex justify-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-primary flex items-center justify-center shadow-primary floating">
-              <Sparkles className="w-8 h-8 text-white rotating" />
+    <div className="min-h-screen flex flex-col bg-surface-muted dark:bg-background">
+      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+        <div className="relative flex items-center justify-between h-16">
+          <div className="flex items-center gap-2">
+            <span className="font-brand font-bold text-2xl text-text-primary tracking-tighter">VOITHER</span>
+            <span className="font-display font-light text-text-secondary">HealthOS</span>
+          </div>
+          <ThemeToggle className="relative top-0 right-0" />
+        </div>
+      </header>
+      <main className="flex-grow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-16 md:py-24 lg:py-32 text-center">
+            <h1 className="font-display font-bold text-5xl md:text-6xl lg:text-7xl text-text-primary leading-tight tracking-tighter">
+              Estúdio Narrativo Clínico
+            </h1>
+            <p className="mt-6 max-w-3xl mx-auto text-lg text-text-secondary">
+              Transforme dados clínicos estruturados em relatórios narrativos elegantes e prontos para impressão, com o poder da IA da Cloudflare.
+            </p>
+            <div className="mt-10 flex justify-center gap-4">
+              <Button asChild size="lg" className="bg-text-primary text-surface hover:bg-text-secondary">
+                <Link to="/builder">
+                  <FileJson className="mr-2 h-5 w-5" />
+                  Iniciar Novo Relatório
+                </Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <Link to="/sessions">
+                  Ver Sessões Salvas
+                </Link>
+              </Button>
             </div>
           </div>
-          <h1 className="text-5xl md:text-7xl font-display font-bold text-balance leading-tight">
-            Creating your <span className="text-gradient">app</span>
-          </h1>
-          <p className="text-lg md:text-xl text-muted-foreground max-w-xl mx-auto text-pretty">
-            Your application would be ready soon.
-          </p>
-          <div className="flex justify-center gap-4">
-            <Button 
-              size="lg"
-              onClick={onPleaseWait}
-              className="btn-gradient px-8 py-4 text-lg font-semibold hover:-translate-y-0.5 transition-all duration-200"
-              aria-live="polite"
-            >
-              Please Wait
-            </Button>
-          </div>
-          <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
-            <div>
-              Time elapsed: <span className="font-medium tabular-nums text-foreground">{formatted}</span>
-            </div>
-            <div>
-              Coins: <span className="font-medium tabular-nums text-foreground">{count}</span>
-            </div>
-          </div>
-          <div className="flex justify-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => { resetTimer(); resetCount(); toast('Reset complete') }}>
-              Reset
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => { inc(); toast('Coin added') }}>
-              Add Coin
-            </Button>
+          <div className="grid md:grid-cols-2 gap-8 pb-16 md:pb-24 lg:pb-32">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><FileJson className="w-5 h-5 text-text-tertiary" /> Importação Simples</CardTitle>
+                <CardDescription>Faça upload ou cole seu JSON clínico pré-formatado para começar.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-text-secondary">O sistema valida a estrutura do seu JSON instantaneamente, garantindo que todos os campos necessários estejam presentes antes do processamento.</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5 text-text-tertiary" /> Orquestração com IA</CardTitle>
+                <CardDescription>Utilize nosso gateway 'voither' para validar, enriquecer e formatar seu relatório.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-text-secondary">A IA melhora o tom clínico, preenche campos ausentes e estrutura o conteúdo em seções e parágrafos coesos, prontos para revisão.</p>
+              </CardContent>
+            </Card>
           </div>
         </div>
-        <footer className="absolute bottom-8 text-center text-muted-foreground/80">
-          <p>Powered by Cloudflare</p>
-        </footer>
-        <Toaster richColors closeButton />
-      </div>
-    // </AppLayout> Uncomment this if you want to use the sidebar
-  )
+      </main>
+      <footer className="bg-surface dark:bg-background border-t">
+        <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 text-center text-sm text-text-tertiary">
+          <p>
+            Construído com ❤️ na Cloudflare.
+          </p>
+          <p className="mt-2 text-xs opacity-75">
+            Nota: O uso dos recursos de IA está sujeito a limites de requisições para garantir a disponibilidade do serviço.
+          </p>
+        </div>
+      </footer>
+      <Toaster richColors closeButton />
+    </div>
+  );
 }
