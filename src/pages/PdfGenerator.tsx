@@ -5,15 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Textarea } from '@/components/ui/textarea';
 import { Toaster, toast } from 'sonner';
-import { Bot, FileDown, FileText, Loader2, Save } from 'lucide-react';
+import { Bot, FileDown, FileText, Loader2, Save, Eye, Code } from 'lucide-react';
 import UploadJson from '@/components/UploadJson';
-import PdfReportRenderer from '@/components/PdfReportRenderer';
+import PdfReportRenderer, { generateReportHtml } from '@/components/PdfReportRenderer';
+import ReportEditor from '@/components/ReportEditor';
 import { NarrativeReportData } from '@/types/report';
 import { chatService } from '@/lib/chat';
 import { getJsonEnrichPrompt } from '@/lib/llmPrompts';
-import { exportToPdf } from '@/lib/pdf';
+import { exportToPdf, openPrintPreview } from '@/lib/pdf';
 import * as z from 'zod';
 const reportSchema = z.object({
   metadata: z.object({
@@ -22,7 +22,7 @@ const reportSchema = z.object({
     data_analise: z.string(),
     medico_responsavel: z.string(),
     crm: z.string(),
-  }),
+  }).passthrough(),
   reportTitle: z.string(),
   keyQuote: z.string(),
   sections: z.array(z.any()),
@@ -31,6 +31,8 @@ const PdfGenerator: React.FC = () => {
   const [rawJson, setRawJson] = useState<any | null>(null);
   const [enrichedReport, setEnrichedReport] = useState<NarrativeReportData | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [showHtml, setShowHtml] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const handleJsonParsed = (jsonData: any) => {
     const result = reportSchema.safeParse(jsonData);
@@ -39,7 +41,7 @@ const PdfGenerator: React.FC = () => {
       setEnrichedReport(result.data as NarrativeReportData);
       toast.success("JSON validado e carregado com sucesso.");
     } else {
-      toast.error("Esquema JSON inválido.", {
+      toast.error("Esquema JSON inv��lido.", {
         description: "O JSON não corresponde à estrutura NarrativeReportData necessária.",
       });
       setRawJson(null);
@@ -78,7 +80,7 @@ const PdfGenerator: React.FC = () => {
       toast.error("Nenhum relatório para salvar.");
       return;
     }
-    const res = await chatService.createSession(`Relatório para ${enrichedReport.metadata.paciente_id}`, enrichedReport);
+    const res = await chatService.createSession(`Relatório para ${enrichedReport.metadata.paciente_id}`, { inputs: {}, stages: [], report: enrichedReport });
     if (res.success) {
       toast.success("Sessão salva com sucesso!");
     } else {
@@ -86,11 +88,19 @@ const PdfGenerator: React.FC = () => {
     }
   }, [enrichedReport]);
   const handleExportPdf = () => {
-    if (reportRef.current && enrichedReport) {
+    if (enrichedReport) {
       toast.info("Gerando PDF...");
-      exportToPdf(reportRef.current, `voither-report-${enrichedReport.metadata.paciente_id}`);
+      const htmlString = generateReportHtml(enrichedReport);
+      exportToPdf(htmlString, `voither-report-${enrichedReport.metadata.paciente_id}`);
     } else {
-      toast.error("Não foi possível gerar o PDF. Faltando dados ou a visualização não está pronta.");
+      toast.error("Não foi possível gerar o PDF. Faltando dados.");
+    }
+  };
+  const handleOpenPreview = () => {
+    if (reportRef.current && enrichedReport) {
+      openPrintPreview('report-section', `Relatório - ${enrichedReport.metadata.paciente_id}`);
+    } else {
+      toast.error("Não foi possível abrir a visualização.");
     }
   };
   return (
@@ -101,7 +111,10 @@ const PdfGenerator: React.FC = () => {
             <h1 className="font-display font-bold text-4xl text-text-primary">Gerador de PDF a partir de JSON</h1>
             <p className="text-muted-foreground">Faça o upload, enriqueça com IA e exporte seu relatório.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={handleOpenPreview} variant="outline" disabled={!enrichedReport}>
+              <Eye className="w-4 h-4 mr-2" /> Visualizar Impressão
+            </Button>
             <Button onClick={handleSaveSession} variant="outline" disabled={!enrichedReport}>
               <Save className="w-4 h-4 mr-2" /> Salvar Sessão
             </Button>
@@ -146,11 +159,21 @@ const PdfGenerator: React.FC = () => {
                   <FileText className="w-5 h-5 text-primary" />
                   <h2 className="font-semibold">Visualização do Relatório</h2>
                 </div>
+                <Button onClick={() => setShowHtml(!showHtml)} variant="outline" size="sm">
+                  {showHtml ? <Eye className="w-4 h-4 mr-2" /> : <Code className="w-4 h-4 mr-2" />}
+                  {showHtml ? 'Ver Preview' : 'Ver HTML'}
+                </Button>
               </div>
               <ScrollArea className="h-full bg-surface-muted p-4 md:p-8">
                 {enrichedReport ? (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    <PdfReportRenderer data={enrichedReport} reportRef={reportRef} />
+                    {showHtml ? (
+                      <pre className="text-xs whitespace-pre-wrap p-4 bg-gray-900 text-gray-100 rounded-md">
+                        {generateReportHtml(enrichedReport)}
+                      </pre>
+                    ) : (
+                      <PdfReportRenderer data={enrichedReport} reportRef={reportRef} useHtml={true} />
+                    )}
                   </motion.div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-center text-muted-foreground">

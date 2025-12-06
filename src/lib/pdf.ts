@@ -1,8 +1,8 @@
 import html2pdf from 'html2pdf.js';
 import { toast } from 'sonner';
 import { NarrativeReportData } from '@/types/report';
-export const exportToPdf = (element: HTMLElement, filename: string): void => {
-  if (!element) {
+export const exportToPdf = (elementOrHtml: HTMLElement | string, filename: string): void => {
+  if (!elementOrHtml) {
     toast.error("Report element not found for export.");
     return;
   }
@@ -14,10 +14,18 @@ export const exportToPdf = (element: HTMLElement, filename: string): void => {
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
     pagebreak: { mode: ['css'], after: '.print-break-after-page', avoid: '.print-break-inside-avoid' }
   };
-  html2pdf().from(element.cloneNode(true)).set(options).save().catch(err => {
-    console.error("PDF export failed:", err);
-    toast.error("Failed to export PDF.");
-  });
+  const worker = html2pdf().set(options);
+  if (typeof elementOrHtml === 'string') {
+    worker.from(elementOrHtml).save().catch(err => {
+      console.error("PDF export failed:", err);
+      toast.error("Failed to export PDF.");
+    });
+  } else {
+    worker.from(elementOrHtml.cloneNode(true)).save().catch(err => {
+      console.error("PDF export failed:", err);
+      toast.error("Failed to export PDF.");
+    });
+  }
 };
 // Helper to wrap text in canvas
 const wrapText = (context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) => {
@@ -89,4 +97,72 @@ export const generateCoverThumbnail = async (data: NarrativeReportData): Promise
   ctx.fillStyle = '#334155';
   ctx.fillText(data.metadata.crm, 160, 340);
   return canvas.toDataURL('image/png');
+};
+export const generatePrintableHtml = (elementId: string, title: string): string => {
+  const content = document.getElementById(elementId)?.innerHTML;
+  if (!content) return '';
+  const stylesAndScripts = Array.from(document.querySelectorAll('link[rel="stylesheet"], style, script'))
+    .filter(el => {
+      const src = (el as HTMLScriptElement).src || '';
+      const inner = el.innerHTML;
+      return (
+        el.tagName === 'LINK' ||
+        el.tagName === 'STYLE' ||
+        (el.tagName === 'SCRIPT' && (src.includes('tailwindcss') || inner.includes('tailwind.config')))
+      );
+    })
+    .map(el => el.outerHTML)
+    .join('\n');
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${title}</title>
+        ${stylesAndScripts}
+        <style>
+          body { background-color: #334155; min-height: 100vh; padding: 40px 0; display: flex; flex-direction: column; align-items: center; }
+          #preview-container { background: white; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); max-width: 210mm; width: 100%; margin: 0 auto; }
+          .header-bar { position: fixed; top: 0; left: 0; width: 100%; background: #0f172a; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); z-index: 50; }
+          @media print {
+            body { background: white; padding: 0; display: block; }
+            #preview-container { box-shadow: none; max-width: none; margin: 0; width: 100%; }
+            .header-bar { display: none !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header-bar">
+           <div class="flex flex-col">
+             <span class="font-bold text-lg">Visualização de Impressão</span>
+             <span class="text-xs text-gray-400">Verifique o layout antes de salvar</span>
+           </div>
+           <div class="flex gap-4">
+             <button onclick="window.close()" class="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors">FECHAR</button>
+             <button onclick="window.print()" class="bg-white text-slate-900 px-6 py-2 rounded-full text-sm font-bold hover:bg-gray-100 transition-colors shadow-lg flex items-center gap-2">
+               <span>SALVAR PDF</span>
+             </button>
+           </div>
+        </div>
+        <div style="height: 80px;" class="print:hidden"></div>
+        <div id="preview-container">${content}</div>
+        <div style="height: 40px;" class="print:hidden"></div>
+      </body>
+    </html>
+  `;
+};
+export const openPrintPreview = (elementId: string, title: string) => {
+  const html = generatePrintableHtml(elementId, title);
+  if (html) {
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(html);
+      printWindow.document.close();
+    } else {
+      toast.error("Popup blocked", { description: "Please allow popups for this site to see the print preview." });
+    }
+  } else {
+    toast.error("Could not generate print preview.");
+  }
 };
