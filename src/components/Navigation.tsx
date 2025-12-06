@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Bot, List, Download, Menu } from 'lucide-react';
+import { Home, Bot, List, Download, Menu, FileText } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger, SheetClose } from '@/components/ui/sheet';
@@ -11,10 +11,11 @@ const navItems = [
   { href: '/builder', label: 'Pipeline', icon: Bot },
   { href: '/sessions', label: 'Sessions', icon: List },
   { href: '/exports', label: 'Exports', icon: Download },
+  { href: '/pdf-generator', label: 'PDF Generator', icon: FileText },
 ];
 const NavLink = ({ href, label, icon: Icon, isMobile = false }: { href: string; label: string; icon: React.ElementType; isMobile?: boolean }) => {
   const location = useLocation();
-  const isActive = location.pathname === href || (href === '/builder' && location.pathname.startsWith('/builder'));
+  const isActive = location.pathname === href || (href !== '/' && location.pathname.startsWith(href));
   return (
     <Button asChild variant={isActive ? "secondary" : "ghost"} className={cn("justify-start", isMobile && "w-full")}>
       <Link to={href}>

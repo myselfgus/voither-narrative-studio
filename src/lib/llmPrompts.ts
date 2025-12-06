@@ -1,6 +1,6 @@
 import { TranscriptionInputs } from "@/components/TranscriptionInput";
 const jsonOnlySuffix = "Responda APENAS com um objeto JSON válido, sem nenhum texto adicional ou markdown.";
-const getContextPrefix = (prevOutput?: string) => 
+const getContextPrefix = (prevOutput?: string) =>
   prevOutput ? `Baseado na análise anterior:\n---\n${prevOutput.substring(0, 500)}...\n---\n\n` : '';
 export const getASLprompt = (transcription: string, patientId: string, prevOutput?: string): string => `
 ${getContextPrefix(prevOutput)}Você é um assistente de análise linguística clínica.
@@ -64,16 +64,16 @@ O JSON deve ter a seguinte estrutura:
 }
 `;
 export const getNarrativeprompt = (transcription: string, patientId: string, prevOutput?: string, inputs?: Partial<TranscriptionInputs>): string => {
-  const metadata = { 
-    paciente_id: patientId, 
-    contexto: "Análise de Transcrição", 
-    data_analise: new Date().toISOString().split('T')[0], 
-    medico_responsavel: inputs?.professionalName || "A ser preenchido", 
-    crm: inputs?.crm || "A ser preenchido", 
-    total_turnos: 0, 
-    total_palavras: 0, 
-    duracao_estimada_consulta: "N/A", 
-    analista: "Voither HealthOS" 
+  const metadata = {
+    paciente_id: patientId,
+    contexto: "Análise de Transcrição",
+    data_analise: new Date().toISOString().split('T')[0],
+    medico_responsavel: inputs?.professionalName || "A ser preenchido",
+    crm: inputs?.crm || "A ser preenchido",
+    total_turnos: 0,
+    total_palavras: 0,
+    duracao_estimada_consulta: "N/A",
+    analista: "Voither HealthOS"
   };
   return `
 ${getContextPrefix(prevOutput)}Você é um roteirista clínico e assistente de IA.
@@ -96,7 +96,7 @@ O JSON deve ter a estrutura de um objeto NarrativeReportData, contendo 'metadata
         {
           "title": "string (título da subseção)",
           "blocks": [
-            { "type": "paragraph", "content": "string (parágrafo narrativo baseado na transcrição)" },
+            { "type": "paragraph", "content": "string (par��grafo narrativo baseado na transcrição)" },
             { "type": "quote", "content": "string (citação relevante)" }
           ]
         }
@@ -130,3 +130,4 @@ ${prevStages}
 Sua tarefa é sintetizar as informações em uma estrutura NarrativeReportData.
 ${jsonOnlySuffix}
 `;
+export const getJsonEnrichPrompt = (jsonData: any): string => `Dado o seguinte JSON: ${JSON.stringify(jsonData)}, sua tarefa é garantir que ele seja um objeto NarrativeReportData completo e bem formado. Preencha quaisquer campos ausentes, como blocos de conteúdo narrativo, seções ou citações, com base nos dados existentes. Mantenha um tom clínico profissional. ${jsonOnlySuffix} O JSON deve corresponder estritamente à seguinte estrutura: { "metadata": {...}, "reportTitle": "string", "keyQuote": "string", "sections": [...] }`;
