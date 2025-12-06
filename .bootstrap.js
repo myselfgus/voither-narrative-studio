@@ -77,17 +77,7 @@ function updateWranglerJsonc() {
 }
 
 function runSetupCommands() {
-    const commands = [
-    "bun add html2pdf.js@^0.10.1",
-    "bun install react-dropzone",
-    "bun add react-dropzone",
-    "bun add diff-match-patch",
-    "bun add jszip",
-    "bun install file-saver",
-    "bun add file-saver",
-    "bun add -d @types/file-saver",
-    "bun add xterm @xterm/addon-fit"
-];
+    const commands = [];
     
     if (commands.length === 0) {
         console.log('⊘ No setup commands to run');
