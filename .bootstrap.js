@@ -77,7 +77,9 @@ function updateWranglerJsonc() {
 }
 
 function runSetupCommands() {
-    const commands = [];
+    const commands = [
+    "bun add html2pdf.js@^0.10.1"
+];
     
     if (commands.length === 0) {
         console.log('⊘ No setup commands to run');
