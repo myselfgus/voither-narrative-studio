@@ -13,8 +13,8 @@ import { NarrativeReportData } from '@/types/report';
 import { compileFromStages } from '@/lib/reportRenderer';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 const initialStages: PipelineStage[] = [
@@ -150,7 +150,9 @@ const ReportBuilder: React.FC = () => {
         }
       }
       if (!abortControllerRef.current.signal.aborted) {
-        toast.success("Analysis complete!");
+        toast.success("Analysis complete!", {
+          description: "The final report has been generated.",
+        });
         await saveSession();
       }
     } catch (error) {
@@ -171,7 +173,7 @@ const ReportBuilder: React.FC = () => {
       toast.info("Generating PDF...");
       exportToPdf(reportRef.current, `voither-report-${inputs.patientId}`);
     } else {
-      toast.error("Could not generate PDF. Missing data.");
+      toast.error("Could not generate PDF. Missing data or preview not ready.");
     }
   };
   return (
@@ -195,13 +197,15 @@ const ReportBuilder: React.FC = () => {
         </div>
         <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[80vh]">
           <ResizablePanel defaultSize={40} minSize={30}>
-            <ScrollArea className="h-full p-4">
-              <TranscriptionInput
-                initialData={inputs}
-                onStartAnalysis={handleStartAnalysis}
-                onInputsChange={handleInputsChange}
-                isProcessing={isProcessing}
-              />
+            <ScrollArea className="h-full">
+              <div className="p-4">
+                <TranscriptionInput
+                  initialData={inputs}
+                  onStartAnalysis={handleStartAnalysis}
+                  onInputsChange={handleInputsChange}
+                  isProcessing={isProcessing}
+                />
+              </div>
             </ScrollArea>
           </ResizablePanel>
           <ResizableHandle withHandle />

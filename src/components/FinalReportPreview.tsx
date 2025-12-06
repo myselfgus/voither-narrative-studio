@@ -48,14 +48,13 @@ const FinalReportPreview: React.FC<FinalReportPreviewProps> = ({ data, reportRef
           <ZoomIn className="w-4 h-4" />
         </Button>
       </div>
-      <ScrollArea className="flex-grow bg-surface-muted p-4 md:p-8">
+      <ScrollArea className="flex-grow bg-surface-muted p-4 md:p-8 overflow-x-auto sm:overflow-visible">
         <div
           ref={previewWrapperRef}
           className="transition-transform duration-300 ease-in-out mx-auto"
-          style={{ 
-            transform: `scale(${zoom})`, 
+          style={{
+            transform: `scale(${zoom})`,
             transformOrigin: 'top center',
-            width: `calc(210mm * ${zoom})`,
           }}
         >
           <ReportPreview data={data} reportRef={reportRef} />
