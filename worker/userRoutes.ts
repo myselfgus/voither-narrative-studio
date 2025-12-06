@@ -21,6 +21,11 @@ export function coreRoutes(app: Hono<{ Bindings: Env }>) {
         }
     });
 }
+async function fileToBase64(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer();
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    return `data:${file.type};base64,${base64}`;
+}
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
     // Session Management (DO-based for active sessions)
     app.get('/api/sessions', async (c) => {
@@ -115,7 +120,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         if (!name) return c.json({ success: false, error: 'Name required' }, 400);
         try {
             const info = await c.env.VOITHER_D1.prepare('UPDATE Patients SET name=?1, context=?2, metadata=?3, updated_at=unixepoch() WHERE id=?4').bind(name, context || '', JSON.stringify(metadata || {}), patientId).run();
-            if (info.changes === 0) return c.json({ success: false, error: 'Patient not found' }, 404);
+            if (info.meta.changes === 0) return c.json({ success: false, error: 'Patient not found' }, 404);
             return c.json({ success: true });
         } catch (e) {
             return c.json({ success: false, error: 'Database error' }, 500);
@@ -126,19 +131,77 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const patientId = c.req.param('id');
         try {
             const info = await c.env.VOITHER_D1.prepare('DELETE FROM Patients WHERE id=?1').bind(patientId).run();
-            return c.json({ success: info.changes > 0 });
+            return c.json({ success: info.meta.changes > 0 });
         } catch (e) {
             return c.json({ success: false, error: 'Database error' }, 500);
         }
     });
-    // WebRTC Signaling (placeholder)
-    app.post('/api/webrtc/:type/:sessionId', async (c) => {
-        const { type, sessionId } = c.req.param();
-        const body = await c.req.json();
+    // WebRTC Signaling
+    app.post('/api/webrtc/join/:roomId?', async (c) => {
+        const roomId = c.req.param('roomId') || crypto.randomUUID();
+        const sessionId = c.req.query('sessionId');
         const controller = getAppController(c.env);
-        // This is a simplified signaling mechanism using a DO.
-        // In a production scenario, you'd use a more robust system like WebSockets or a dedicated service.
-        await controller.signal(sessionId, { type, ...body });
+        await controller.fetch(new Request('http://dummy/webrtc', { method: 'POST', body: JSON.stringify({ action: 'join', roomId, sessionId }), headers: { 'Content-Type': 'application/json' } }));
+        return c.json({ success: true, roomId, iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }], token: btoa(sessionId || '') });
+    });
+    app.post('/api/webrtc/signal/:roomId', async (c) => {
+        const roomId = c.req.param('roomId');
+        const { sessionId, data } = await c.req.json();
+        const controller = getAppController(c.env);
+        await controller.fetch(new Request('http://dummy/webrtc', { method: 'POST', body: JSON.stringify({ action: 'signal', roomId, sessionId, data }), headers: { 'Content-Type': 'application/json' } }));
         return c.json({ success: true });
+    });
+    app.post('/api/webrtc/leave/:roomId', async (c) => {
+        const roomId = c.req.param('roomId');
+        const sessionId = c.req.query('sessionId');
+        const controller = getAppController(c.env);
+        await controller.fetch(new Request('http://dummy/webrtc', { method: 'POST', body: JSON.stringify({ action: 'leave', roomId, sessionId }), headers: { 'Content-Type': 'application/json' } }));
+        return c.json({ success: true });
+    });
+    // R2 Video Upload
+    app.put('/api/video/:patientId/upload', async (c) => {
+        const patientId = c.req.param('patientId');
+        const formData = await c.req.formData();
+        const file = formData.get('video') as File;
+        if (!file || file.size > 50 * 1024 * 1024) { // 50MB limit
+            return c.json({ success: false, error: 'Invalid file or file too large' }, 400);
+        }
+        if (!c.env.VOITHER_R2 || !c.env.R2_PUBLIC_ID) {
+            console.warn("R2 binding not available. Falling back to base64 data URL.");
+            const base64 = await fileToBase64(file);
+            return c.json({ success: true, url: base64, uuid: crypto.randomUUID() });
+        }
+        try {
+            const key = `video-calls/${patientId}/${crypto.randomUUID()}.webm`;
+            await c.env.VOITHER_R2.put(key, file.stream(), {
+                httpMetadata: { contentType: file.type },
+            });
+            const publicUrl = `https://pub-${c.env.R2_PUBLIC_ID}.r2.dev/${key}`;
+            return c.json({ success: true, url: publicUrl, uuid: key.split('/').pop()?.split('.')[0] || crypto.randomUUID() });
+        } catch (e) {
+            console.error("R2 upload failed:", e);
+            return c.json({ success: false, error: "Failed to upload video" }, 500);
+        }
+    });
+    // Transcription Trigger
+    app.post('/api/transcribe/:sessionId', async (c) => {
+        const sessionId = c.req.param('sessionId');
+        const { audioUrl } = await c.req.json();
+        if (!audioUrl) return c.json({ success: false, error: 'audioUrl required' }, 400);
+        try {
+            // Mock transcript for now. In production, use Workers AI speech-to-text.
+            const transcript = 'This is a mock transcript from the audio file at ' + audioUrl;
+            const prompt = `Analyze the following transcript: ${transcript}`;
+            const agent = await getAgentByName<Env, ChatAgent>(c.env.CHAT_AGENT, sessionId);
+            await agent.fetch(new Request(`http://dummy/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: prompt, model: 'voither' })
+            }));
+            return c.json({ success: true, sessionId, transcriptUrl: audioUrl.replace('.webm', '-transcript.json') });
+        } catch (e) {
+            console.error("Transcription trigger failed:", e);
+            return c.json({ success: false, error: 'Transcription failed' }, 500);
+        }
     });
 }
