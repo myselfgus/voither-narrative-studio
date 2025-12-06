@@ -6,7 +6,6 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, BrainCircuit, Gem, BookOpen, Stethoscope, Download, Loader2, AlertTriangle } from 'lucide-react';
 export interface PipelineStage {
   name: 'ASL' | 'VDLP' | 'GEM' | 'Narrative' | 'SOAP';
@@ -19,38 +18,46 @@ const stageDetails = {
   VDLP: { icon: BrainCircuit, description: 'Vocabulário Descritivo de Linguagem Psicológica' },
   GEM: { icon: Gem, description: 'Granularidade Emocional' },
   Narrative: { icon: BookOpen, description: 'Estruturação Narrativa' },
-  SOAP: { icon: Stethoscope, description: 'Notas Clínicas SOAP' },
+  SOAP: { icon: Stethoscope, description: 'Notas Cl��nicas SOAP' },
 };
 interface PipelineStagesProps {
   stages: PipelineStage[];
   patientId?: string;
 }
-const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patientId }) => {
+const PipelineStages: React.FC<PipelineStagesProps> = ({ stages, patientId }) => {
   const handleDownloadJson = (stage: PipelineStage) => {
-    let content: string;
-    let extension: string;
     try {
-      content = JSON.stringify(JSON.parse(stage.output), null, 2);
-      extension = 'json';
+      const formattedJson = JSON.stringify(JSON.parse(stage.output), null, 2);
+      const blob = new Blob([formattedJson], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `voither-${stage.name.toLowerCase()}-${patientId || 'report'}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (e) {
-      content = stage.output;
-      extension = 'txt';
+      console.error("Failed to parse or download JSON", e);
+      // Fallback for non-json content
+      const blob = new Blob([stage.output], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `voither-${stage.name.toLowerCase()}-${patientId || 'report'}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
-    const blob = new Blob([content], { type: extension === 'json' ? 'application/json' : 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `voither-${stage.name.toLowerCase()}-${patientId || 'report'}.${extension}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
   const getBadgeVariant = (status: PipelineStage['status']) => {
-    if (status === 'complete') return 'default';
-    if (status === 'running') return 'secondary';
-    if (status === 'error') return 'destructive';
-    return 'outline';
+    switch (status) {
+      case 'complete': return 'default';
+      case 'running': return 'secondary';
+      case 'error': return 'destructive';
+      default: return 'outline';
+    }
   };
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -81,7 +88,6 @@ const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patien
       {stages.map((stage) => {
         const details = stageDetails[stage.name];
         const Icon = details.icon;
-        const isLoading = stage.status === 'pending' || stage.status === 'running';
         return (
           <motion.div key={stage.name} variants={itemVariants}>
             <Card>
@@ -103,28 +109,23 @@ const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patien
                 <Progress value={stage.progress} className="w-full mt-4" />
               </CardHeader>
               <CardContent>
-                {isLoading ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : (
-                  <ScrollArea className="h-40 w-full rounded-md border">
-                    <Textarea
-                      readOnly
-                      value={stage.output}
-                      className="h-full w-full p-2 font-mono text-xs border-none resize-none focus-visible:ring-0"
-                      placeholder={stage.status === 'pending' ? 'Aguardando início...' : 'Aguardando resultado...'}
-                    />
-                  </ScrollArea>
-                )}
+                <ScrollArea className="h-40 w-full rounded-md border">
+                  <Textarea
+                    readOnly
+                    value={stage.output}
+                    className="h-full w-full p-2 font-mono text-xs border-none resize-none focus-visible:ring-0"
+                    placeholder={stage.status === 'pending' ? 'Aguardando início...' : 'Aguardando resultado...'}
+                  />
+                </ScrollArea>
                 <div className="flex justify-end gap-2 mt-2">
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={stage.status !== 'complete'}
                     onClick={() => handleDownloadJson(stage)}
-                    onTouchStart={(e) => e.preventDefault()}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Download
+                    JSON
                   </Button>
                 </div>
               </CardContent>
@@ -135,4 +136,4 @@ const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patien
     </motion.div>
   );
 };
-export default React.memo(PipelineStagesComponent);
+export default PipelineStages;

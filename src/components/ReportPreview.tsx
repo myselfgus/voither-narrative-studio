@@ -18,8 +18,8 @@ const Header = ({ patientId, date }: { patientId: string; date: string }) => (
         <DisplayBrand>VOITHER</DisplayBrand><span className="font-display font-light text-text-tertiary">HealthOS</span>
       </h1>
     </div>
-    <div className="text-right">
-      <MonoMeta>{patientId} • {new Date(date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</MonoMeta>
+      <div className="text-right">
+      <MonoMeta>{patientId} • {(() => { const _d = new Date(date); return isNaN(_d.getTime()) ? String(date || '') : _d.toLocaleDateString('pt-BR', { timeZone: 'UTC' }); })()}</MonoMeta>
     </div>
   </header>
 );
@@ -69,7 +69,10 @@ const CoverPage: React.FC<{ data: NarrativeReportData }> = ({ data }) => (
         </div>
         <div className="col-span-2 flex justify-between items-end mt-2">
            <MonoMeta>
-             {new Date(data.metadata.data_analise).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}
+             {(() => {
+               const _d = new Date(data.metadata.data_analise);
+               return isNaN(_d.getTime()) ? String(data.metadata.data_analise || '') : _d.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+             })()}
            </MonoMeta>
         </div>
      </div>
@@ -80,11 +83,17 @@ const BlockRenderer: React.FC<{ block: ContentBlock }> = ({ block }) => {
     case 'paragraph':
       return <BodyParagraph>{Array.isArray(block.content) ? block.content.join(' ') : block.content}</BodyParagraph>;
     case 'quote':
-      return <BodyBlockquote>{block.content}</BodyBlockquote>;
+      return (
+        <div className="my-8 pl-6 border-l-4 border-text-primary py-2">
+          <p className="font-sans text-xl font-light italic text-text-primary leading-relaxed">
+            {block.content}
+          </p>
+        </div>
+      );
     case 'list':
       return (
         <div className="my-6 pl-4">
-           {Array.isArray(block.content) && block.content.map((item, i) => (
+             {Array.isArray(block.content) && block.content.map((item, i) => (
              <BodyListItem key={i}>{item}</BodyListItem>
            ))}
         </div>
@@ -95,12 +104,12 @@ const BlockRenderer: React.FC<{ block: ContentBlock }> = ({ block }) => {
 };
 const SectionRenderer: React.FC<{ section: ReportSection }> = ({ section }) => (
   <Section title={section.title}>
-    {section.intro && section.intro.map((block, idx) => <BlockRenderer key={`intro-${idx}`} block={block} />)}
+    {(section.intro || []).map((block, idx) => <BlockRenderer key={`intro-${idx}`} block={block} />)}
     {section.subsections && section.subsections.length > 0 && (
       <div className="mt-8">
         {section.subsections.map((sub, idx) => (
           <SubSection key={`sub-${idx}`} title={sub.title}>
-             {sub.blocks.map((block, bIdx) => <BlockRenderer key={`block-${bIdx}`} block={block} />)}
+             {(sub.blocks || []).map((block, bIdx) => <BlockRenderer key={`block-${bIdx}`} block={block} />)}
           </SubSection>
         ))}
       </div>
@@ -125,7 +134,7 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({ data, reportRef }) => {
       <div className="p-[20mm] min-h-[297mm] flex flex-col print:p-0 print-padding">
         <Header patientId={data.metadata.paciente_id} date={data.metadata.data_analise} />
         <div className="space-y-4 flex-grow">
-           {data.sections.map((section, idx) => (
+           {(data.sections || []).map((section, idx) => (
              <SectionRenderer key={idx} section={section} />
            ))}
         </div>

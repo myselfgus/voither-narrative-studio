@@ -1,42 +1,50 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { FileUp, Bot, Download, Save, Eye } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { Home } from 'lucide-react';
 import { Toaster, toast } from '@/components/ui/sonner';
-import { Skeleton } from '@/components/ui/skeleton';
-import { motion } from 'framer-motion';
-import UploadJson from '@/components/UploadJson';
-import ReportEditor from '@/components/ReportEditor';
-import ReportPreview from '@/components/ReportPreview';
-import DiffModal from '@/components/DiffModal';
-import { NarrativeReportData } from '@/types/report';
-import { validateReportData } from '@/lib/reportRenderer';
-import { getValidationPrompt } from '@/lib/llmPrompts';
-import { chatService } from '@/lib/chat';
-import { exportToPdf } from '@/lib/pdf';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import TranscriptionInput, { TranscriptionInputs } from '@/components/TranscriptionInput';
+import PipelineStages, { PipelineStage } from '@/components/PipelineStages';
+import { chatService } from '@/lib/chat';
+import { getASLprompt, getVDLPprompt, getGEMprompt, getNarrativeprompt, getSOAPprompt } from '@/lib/llmPrompts';
+const initialStages: PipelineStage[] = [
+  { name: 'ASL', status: 'pending', progress: 0, output: '' },
+  { name: 'VDLP', status: 'pending', progress: 0, output: '' },
+  { name: 'GEM', status: 'pending', progress: 0, output: '' },
+  { name: 'Narrative', status: 'pending', progress: 0, output: '' },
+  { name: 'SOAP', status: 'pending', progress: 0, output: '' },
+];
+const stagePromptMap = {
+  ASL: getASLprompt,
+  VDLP: getVDLPprompt,
+  GEM: getGEMprompt,
+  Narrative: getNarrativeprompt,
+  SOAP: getSOAPprompt,
+};
+interface SessionData {
+  inputs: Partial<TranscriptionInputs>;
+  stages: PipelineStage[];
+}
 const ReportBuilder: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [reportData, setReportData] = useState<NarrativeReportData | null>(null);
-  const [isProcessingLLM, setIsProcessingLLM] = useState(false);
-  const [isLoadingSession, setIsLoadingSession] = useState(true);
-  const [preLLMData, setPreLLMData] = useState<string | null>(null);
-  const [postLLMData, setPostLLMData] = useState<string | null>(null);
-  const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
-  const reportPreviewRef = useRef<HTMLDivElement>(null);
-  const loadSessionData = useCallback(async (id: string) => {
-    setIsLoadingSession(true);
+  const [inputs, setInputs] = useState<Partial<TranscriptionInputs>>({});
+  const [stages, setStages] = useState<PipelineStage[]>(initialStages);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const loadSession = useCallback(async (id: string) => {
     const res = await chatService.loadReportFromSession(id);
     if (res.success && res.data) {
-      setReportData(res.data);
+      const sessionData = res.data as unknown as SessionData;
+      setInputs(sessionData.inputs || {});
+      setStages(sessionData.stages || initialStages);
     } else {
-      toast.error("Falha ao carregar sessão", { description: res.error });
+      // New session or error, reset state
+      setInputs({});
+      setStages(initialStages);
       navigate('/builder', { replace: true });
     }
-    setIsLoadingSession(false);
   }, [navigate]);
   useEffect(() => {
     const currentSessionId = searchParams.get('session');
@@ -44,116 +52,71 @@ const ReportBuilder: React.FC = () => {
       if (sessionId !== currentSessionId) {
         setSessionId(currentSessionId);
         chatService.setSessionId(currentSessionId);
-        loadSessionData(currentSessionId);
-      } else {
-        setIsLoadingSession(false);
+        loadSession(currentSessionId);
       }
     } else {
-      const newSessionId = chatService.getSessionId();
-      setSessionId(newSessionId);
-      chatService.setSessionId(newSessionId);
-      setReportData(null);
-      setIsLoadingSession(false);
+      const newId = chatService.getSessionId();
+      setSessionId(newId);
+      chatService.setSessionId(newId);
+      setInputs({});
+      setStages(initialStages);
     }
-  }, [searchParams, sessionId, loadSessionData]);
-  const handleJsonParsed = async (jsonData: any) => {
-    const { valid, errors, normalized } = validateReportData(jsonData);
-    if (valid && normalized) {
-      setReportData(normalized);
-      toast.success('JSON validado e carregado com sucesso.');
-      const res = await chatService.createSession(normalized.reportTitle, normalized);
-      if (res.success && res.data) {
-        navigate(`/builder?session=${res.data.sessionId}`, { replace: true });
+  }, [searchParams, sessionId, loadSession]);
+  const handleInputsChange = useCallback((newInputs: Partial<TranscriptionInputs>) => {
+    setInputs(prev => ({ ...prev, ...newInputs }));
+  }, []);
+  const saveSession = useCallback(async () => {
+    if (sessionId) {
+      const dataToSave: SessionData = { inputs, stages };
+      await chatService.saveReportToSession(sessionId, dataToSave as any);
+    }
+  }, [sessionId, inputs, stages]);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (Object.keys(inputs).length > 0) {
+        saveSession();
       }
-    } else {
-      toast.error('Erro na validação do JSON.', { description: errors.join(' ') });
+    }, 1000); // Debounce save
+    return () => clearTimeout(handler);
+  }, [inputs, stages, saveSession]);
+  const handleStartAnalysis = async (data: TranscriptionInputs) => {
+    setIsProcessing(true);
+    const controller = new AbortController();
+    setAbortController(controller);
+    if (!sessionId) {
+      const newId = chatService.getSessionId();
+      setSessionId(newId);
+      chatService.setSessionId(newId);
+      await chatService.createSession(`Análise de ${data.patientId}`);
+      navigate(`/builder?session=${newId}`, { replace: true });
     }
-  };
-  const handleEnrichWithLLM = async (retryCount = 0): Promise<void> => {
-    if (!reportData) {
-      toast.warning('Nenhum dado de relatório para processar.');
-      return;
-    }
-    setIsProcessingLLM(true);
-    toast.info('Iniciando orquestração com IA...', { id: 'llm-process' });
-    const originalDataString = JSON.stringify(reportData, null, 2);
-    setPreLLMData(originalDataString);
-    const prompt = getValidationPrompt(reportData);
-    let llmResponseJson = '';
-    try {
-      await chatService.sendMessage(prompt, 'voither', (chunk) => {
-        llmResponseJson += chunk;
-      });
-      const cleanedJson = llmResponseJson.replace(/```json\n|```/g, '').trim();
-      const enrichedData = JSON.parse(cleanedJson);
-      const { valid, normalized } = validateReportData(enrichedData);
-      if (valid && normalized) {
-        setReportData(normalized);
-        setPostLLMData(JSON.stringify(normalized, null, 2));
-        toast.success('Relatório enriquecido pela IA!', { id: 'llm-process', description: 'Clique em "Ver Alterações" para revisar.' });
+    setStages(initialStages); // Reset stages on new analysis
+    let currentTranscription = data.transcription;
+    for (let i = 0; i < initialStages.length; i++) {
+      const stageName = initialStages[i].name;
+      setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'running', progress: 50 } : s));
+      const promptFn = stagePromptMap[stageName];
+      const prompt = promptFn(currentTranscription, data.patientId);
+      const { success, output } = await chatService.sendMessage(prompt, 'voither', (chunk) => {
+        setStages(prev => prev.map(s => s.name === stageName ? { ...s, output: s.output + chunk } : s));
+      }, { signal: controller.signal });
+      if (controller.signal.aborted) {
+        toast.info("Análise abortada.");
+        setStages(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending', progress: 0 } : s));
+        break;
+      }
+      if (success && output) {
+        setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'complete', progress: 100, output } : s));
+        // For now, we pass the original transcription to all stages.
+        // A more advanced flow could pass the output of one stage to the next.
       } else {
-        throw new Error('A IA retornou um JSON com estrutura inválida.');
-      }
-    } catch (error) {
-      console.error('LLM processing error:', error);
-      if (retryCount < 2) {
-        toast.warning(`Tentativa ${retryCount + 1} falhou. Tentando novamente...`, { id: 'llm-process' });
-        setTimeout(() => handleEnrichWithLLM(retryCount + 1), 2000 * (retryCount + 1));
-        return;
-      } else {
-        toast.error('Falha no processamento da IA.', { id: 'llm-process', description: 'Por favor, tente novamente mais tarde.' });
+        setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'error', progress: 100, output: "Falha na análise." } : s));
+        toast.error(`Erro na etapa ${stageName}.`);
+        break;
       }
     }
-    setIsProcessingLLM(false);
-  };
-  const handleSave = useCallback(async () => {
-    if (sessionId && reportData) {
-      const res = await chatService.saveReportToSession(sessionId, reportData);
-      if (res.success) {
-        toast.success("Relatório salvo com sucesso!");
-      } else {
-        toast.error("Falha ao salvar o relatório.", { description: res.error });
-      }
-    }
-  }, [sessionId, reportData]);
-  const renderEditorContent = () => {
-    if (isLoadingSession) {
-      return <Skeleton className="h-96 w-full" />;
-    }
-    if (reportData) {
-      return (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-          <ReportEditor reportData={reportData} onUpdate={setReportData} onSave={handleSave} />
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5" /> Orquestração IA</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              <p className="text-sm text-text-secondary mb-2">Use a IA para validar, enriquecer e formatar o conteúdo.</p>
-              <Button onClick={() => handleEnrichWithLLM()} disabled={isProcessingLLM} className="w-full">
-                {isProcessingLLM ? 'Processando...' : 'Validar e Enriquecer com IA'}
-              </Button>
-              {postLLMData && (
-                <Button onClick={() => setIsDiffModalOpen(true)} variant="outline" className="w-full">
-                  <Eye className="w-4 h-4 mr-2" /> Ver Alterações
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      );
-    }
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><FileUp className="w-5 h-5" /> Importar Dados</CardTitle>
-          <CardDescription>Comece importando um arquivo JSON com os dados clínicos.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <UploadJson onJsonParsed={handleJsonParsed} />
-        </CardContent>
-      </Card>
-    );
+    setIsProcessing(false);
+    setAbortController(null);
   };
   return (
     <div className="min-h-screen bg-surface-muted dark:bg-background">
@@ -165,44 +128,30 @@ const ReportBuilder: React.FC = () => {
               <span className="font-display font-light text-text-secondary">HealthOS</span>
             </Link>
             <div className="flex items-center gap-4">
-              {reportData && (
-                <>
-                  <Button variant="outline" onClick={handleSave}><Save className="w-4 h-4 mr-2" /> Salvar</Button>
-                  <Button onClick={() => exportToPdf(reportPreviewRef.current!, reportData.metadata.paciente_id)}>
-                    <Download className="w-4 h-4 mr-2" /> Baixar PDF
-                  </Button>
-                </>
-              )}
+              <Link to="/" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+                <Home className="w-4 h-4" />
+                Página Inicial
+              </Link>
               <ThemeToggle className="relative top-0 right-0" />
             </div>
           </div>
         </div>
       </header>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="py-8 md:py-10 lg:py-12">
-          <div className="grid lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1 space-y-8">
-              {renderEditorContent()}
-            </div>
-            <div className="lg:col-span-2">
-              <Card className="sticky top-24">
-                <CardHeader><CardTitle>Visualização do Relatório</CardTitle></CardHeader>
-                <CardContent className="h-[calc(100vh-12rem)] overflow-y-auto bg-surface-muted p-4 rounded-b-lg">
-                  <ReportPreview data={reportData} reportRef={reportPreviewRef} />
-                </CardContent>
-              </Card>
+      <main>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-8 md:py-10 lg:py-12">
+            <div className="grid lg:grid-cols-2 gap-8">
+              <TranscriptionInput
+                initialData={inputs}
+                onStartAnalysis={handleStartAnalysis}
+                onInputsChange={handleInputsChange}
+                isProcessing={isProcessing}
+              />
+              <PipelineStages stages={stages} patientId={inputs.patientId} />
             </div>
           </div>
         </div>
-      </div>
-      {preLLMData && postLLMData && (
-        <DiffModal
-          isOpen={isDiffModalOpen}
-          onClose={() => setIsDiffModalOpen(false)}
-          oldData={preLLMData}
-          newData={postLLMData}
-        />
-      )}
+      </main>
       <Toaster richColors closeButton />
     </div>
   );

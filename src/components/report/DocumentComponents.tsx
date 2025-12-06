@@ -34,9 +34,11 @@ export const BodyParagraph: React.FC<{ children: React.ReactNode }> = ({ childre
     {children}
   </p>
 );
-export const BodyListItem: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+export const BodyListItem: React.FC<{ index?: number; children: React.ReactNode }> = ({ index, children }) => (
   <div className="flex gap-4 items-baseline mb-3">
-    <span className="font-mono text-text-primary/40 font-bold text-[10px] mt-2 shrink-0">•</span>
+    <span className="font-mono text-text-primary/40 font-bold text-[10px] mt-2 shrink-0">
+      {index !== undefined ? String(index + 1).padStart(2, '0') : '•'}
+    </span>
     <span className="font-sans font-light text-[15px] text-text-primary leading-relaxed text-justify">
       {children}
     </span>
@@ -45,7 +47,7 @@ export const BodyListItem: React.FC<{ children: React.ReactNode }> = ({ children
 export const BodyBlockquote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="my-8 pl-6 border-l-4 border-text-primary py-2">
     <p className="font-sans text-xl font-light italic text-text-primary leading-relaxed">
-      "{children}"
+      {children}
     </p>
   </div>
 );
@@ -70,3 +72,7 @@ export const SubSection: React.FC<{ title: React.ReactNode; children: React.Reac
     {children}
   </div>
 );
+
+/* Grouped object exports and re-exported types removed to satisfy react-refresh linting.
+   Individual component exports (DisplayH1, DisplayH2, DisplayBrand, MonoLabel, MonoMeta,
+   BodyParagraph, BodyListItem, BodyBlockquote, Section, SubSection) remain available. */
