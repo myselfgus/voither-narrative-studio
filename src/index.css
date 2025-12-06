@@ -51,7 +51,21 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+  }
+}
+@layer utilities {
+  .glass {
+    @apply bg-background/80 dark:bg-background/60 backdrop-blur-md border border-border/50;
+  }
+  .rounded-macos {
+    @apply rounded-2xl;
+  }
+  .hover-elevate {
+    @apply transition-all duration-200;
+  }
+  .group:hover .hover-elevate, .hover-elevate:hover {
+    @apply shadow-md scale-[1.02];
   }
 }
 /* Layout System for Print */
