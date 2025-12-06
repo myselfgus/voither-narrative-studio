@@ -35,6 +35,7 @@ interface SessionData {
   inputs: Partial<TranscriptionInputs>;
   stages: PipelineStage[];
   lastSaved?: number;
+  report?: NarrativeReportData;
 }
 const ReportBuilder: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -54,7 +55,9 @@ const ReportBuilder: React.FC = () => {
       const sessionData = res.data as SessionData;
       setInputs(sessionData.inputs || {});
       setStages(sessionData.stages || initialStages);
-      if (sessionData.stages?.every(s => s.status === 'complete')) {
+      if (sessionData.report) {
+        setFinalReport(sessionData.report);
+      } else if (sessionData.stages?.every(s => s.status === 'complete')) {
         const compiledReport = compileFromStages(sessionData.stages, sessionData.inputs as TranscriptionInputs);
         setFinalReport(compiledReport);
       }
@@ -91,7 +94,7 @@ const ReportBuilder: React.FC = () => {
   }, []);
   const saveSession = useCallback(async () => {
     if (sessionId) {
-      const dataToSave: SessionData = { inputs, stages, lastSaved: Date.now() };
+      const dataToSave: SessionData = { inputs, stages, report: finalReport || undefined, lastSaved: Date.now() };
       const res = await chatService.saveReportToSession(sessionId, dataToSave);
       if (res.success) {
         toast.success("Session saved!");
@@ -100,7 +103,7 @@ const ReportBuilder: React.FC = () => {
         toast.error("Failed to save session.");
       }
     }
-  }, [sessionId, inputs, stages]);
+  }, [sessionId, inputs, stages, finalReport]);
   useDebounce(() => {
     if (sessionId && (stages.some(s => s.status === 'complete') || Object.keys(inputs).length > 0)) {
       saveSession();
@@ -209,7 +212,6 @@ const ReportBuilder: React.FC = () => {
                   onStartAnalysis={handleStartAnalysis}
                   onInputsChange={handleInputsChange}
                   isProcessing={isProcessing}
-                  sessionId={sessionId}
                 />
               </div>
             </ScrollArea>

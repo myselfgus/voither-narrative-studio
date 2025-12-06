@@ -157,5 +157,24 @@ class ChatService {
     const response = await fetch(`/api/user/apikey?sessionId=${sessionId}`);
     return response.json();
   }
+  // Patient API methods
+  async listPatients(): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+      const response = await fetch('/api/patients');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return { success: false, error: 'Failed to list patients' };
+    }
+  }
+  async getPatient(patientId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`/api/patients/${patientId}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      return { success: false, error: 'Failed to get patient details' };
+    }
+  }
 }
 export const chatService = new ChatService();

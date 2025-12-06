@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Home, Bot, List, Download, Menu, FileText } from 'lucide-react';
+import { Home, Bot, List, Download, Menu, FileText, Users } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger, SheetClose } from '@/components/ui/sheet';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/builder', label: 'Pipeline', icon: Bot },
+  { href: '/patients', label: 'Patients', icon: Users },
   { href: '/sessions', label: 'Sessions', icon: List },
   { href: '/exports', label: 'Exports', icon: Download },
   { href: '/pdf-generator', label: 'PDF Generator', icon: FileText },

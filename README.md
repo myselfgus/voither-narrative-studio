@@ -7,15 +7,17 @@ This project provides an intuitive interface for JSON upload, LLM-driven content
 - **LLM Orchestration**: Integrate with Cloudflare AI Gateway ("voither") for content enrichment, field completion, language normalization, and structuring into narrative sections/subsections.
 - **Report Builder**: Editable structured editor for metadata, sections, and content blocks; live WYSIWYG A4 preview with separate cover page and header/footer on body pages.
 - **PDF Export**: Client-side print preview and export using html2pdf.js or window.print fallback, optimized for A4 printing with proper pagination and fonts.
-- **Session Management**: Persistent sessions via Durable Objects for history, re-runs, and quick access to previous reports.
+- **Persistent Storage**: Uses Cloudflare D1 for long-term storage of patient and session data, and Durable Objects for active session management.
+- **Patient Management**: Centralized directory to view all patients and their associated reports.
 - **Responsive UI**: Mobile-first design with shadcn/ui components, Tailwind CSS, and framer-motion for smooth interactions.
 - **Security & Compliance**: All AI calls routed through Workers; no client-side API key exposure; built-in error handling and validation.
 - **AI Limits Notice**: Clear indicators for Cloudflare AI request limits to manage usage.
 ## Tech Stack
 - **Frontend**: React 18, Vite, Tailwind CSS (v3), shadcn/ui, framer-motion, lucide-react, sonner (toasts), date-fns.
 - **Backend**: Cloudflare Workers, Hono (routing), Agents SDK (Durable Objects), OpenAI SDK (via AI Gateway).
+- **Database**: Cloudflare D1 for SQL-based persistence.
 - **State Management**: Zustand (client-side slices).
-- **AI Integration**: Cloudflare AI Gateway with MCP (Model Context Protocol) support; tools for web search and weather (extensible).
+- **AI Integration**: Cloudflare AI Gateway with MCP (Model Context Protocol) support.
 - **PDF Handling**: html2pdf.js (client-side export).
 - **TypeScript**: Full type safety with Zod validation.
 - **Deployment**: Cloudflare Workers for edge deployment.
@@ -23,7 +25,8 @@ This project provides an intuitive interface for JSON upload, LLM-driven content
 ### Prerequisites
 - Node.js (v18+) or Bun (recommended for faster setup).
 - Cloudflare account with Workers enabled.
-- Configure environment variables: `CF_AI_BASE_URL` (your AI Gateway URL) and `CF_AI_API_KEY` (your API key). Optional: `SERPAPI_KEY` for web search tools.
+- Wrangler CLI installed and configured.
+- Configure environment variables: `CF_AI_BASE_URL` (your AI Gateway URL) and `CF_AI_API_KEY` (your API key).
 ### Installation
 1. Clone the repository:
    ```
@@ -37,11 +40,25 @@ This project provides an intuitive interface for JSON upload, LLM-driven content
 3. Set up environment variables in `wrangler.jsonc` (under `vars`):
    ```
    "vars": {
-     "CF_AI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/openai",
-     "CF_AI_API_KEY": "{your_api_key}"
+     "CF_AI_BASE_URL": "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/openai"
    }
    ```
-4. Generate TypeScript types for Workers:
+4. **Create and Bind D1 Database**:
+   ```sh
+   # Create the D1 database
+   npx wrangler d1 create voither-d1
+   # The command will output the binding configuration. Add it to your wrangler.jsonc file:
+   "d1_databases": [
+     {
+       "binding": "VOITHER_D1",
+       "database_name": "voither-d1",
+       "database_id": "your-database-id"
+     }
+   ]
+   # Run the database migrations
+   npx wrangler d1 execute voither-d1 --file=./worker/migrations.sql
+   ```
+5. Generate TypeScript types for Workers:
    ```
    bun run cf-typegen
    ```
@@ -51,18 +68,13 @@ Start the development server:
 ```
 bun run dev
 ```
-The app will be available at `http://localhost:3000`. Upload a sample JSON file (structured with fields like `paciente_id`, `contexto`, `data_analise`, etc.) via the home page to test the workflow:
-1. **Upload JSON**: Select a file or paste content. Local validation checks schema compliance.
-2. **Run LLM Enrichment**: Click "Validate & Enrich" to send to `/api/chat/:sessionId/chat` with model="voither". Watch streaming progress in the preview.
-3. **Edit & Preview**: Modify fields in the left editor; right pane shows live A4 preview (cover separate, body with headers/footers).
-4. **Export PDF**: Use "Preview for PDF" to open a print-friendly window or direct download.
+The app will be available at `http://localhost:3000`.
 ### API Endpoints
-- `POST /api/chat/:sessionId/chat`: Send orchestration prompt with JSON data (body: `{message: prompt, model: "voither", data: json}`).
-- `GET /api/sessions`: List saved sessions.
-- `POST /api/sessions`: Create new session.
-- `DELETE /api/sessions/:sessionId`: Delete session.
-- `POST /api/user/apikey`: Securely store an API key for a session.
-Sessions are managed via Durable Objects (AppController). AI calls use the "voither" gateway alias for orchestrated LLM processing.
+- `POST /api/chat/:sessionId/chat`: Send orchestration prompt with JSON data.
+- `GET /api/sessions`: List active sessions from Durable Object.
+- `GET /api/patients`: List all patients from D1.
+- `GET /api/patients/:id`: Get a specific patient and their sessions from D1.
+Sessions are managed via Durable Objects (AppController) and persisted to D1.
 ## Deployment
 Deploy to Cloudflare Workers for production:
 1. Ensure `wrangler.jsonc` is configured with your account ID and bindings.
@@ -74,11 +86,6 @@ Deploy to Cloudflare Workers for production:
    ```
    bun run deploy
    ```
-   Or use Wrangler CLI:
-   ```
-   npx wrangler deploy
-   ```
-The app will be live at `https://{project-name}.{account_id}.workers.dev`. Assets are served via Cloudflare's SPA handling.
 ### Production Deployment
 For a production environment, it's recommended to use secrets for sensitive data like API keys.
 1.  **Set Secret**:
@@ -91,13 +98,12 @@ For a production environment, it's recommended to use secrets for sensitive data
     ```
 ### E2E Flow Simulation
 To test the end-to-end flow:
-1.  Navigate to the **PDF Generator** page.
-2.  Upload a valid `sample.json` file.
-3.  Click **Enrich with AI** and wait for completion.
-4.  Optionally, edit the generated report.
-5.  Click **Export PDF** and verify the downloaded file.
-6.  Navigate to the **Exports** page to see the saved session and download artifacts.
-7.  Check the browser console for any errors. API keys are handled server-side and should not be visible.
+1.  Navigate to the **Builder** page.
+2.  Fill in the form and start an analysis.
+3.  Once complete, the session is saved automatically to D1.
+4.  Navigate to the **Patients** page to see the newly created patient record.
+5.  Click "View Dashboard" to see the session associated with that patient.
+6.  Export the PDF from the dashboard or the exports page.
 ## Code Quality
 Run ESLint to check for code quality issues:
 ```sh
