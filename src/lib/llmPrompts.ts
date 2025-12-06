@@ -1,22 +1,107 @@
-import { NarrativeReportData } from "@/types/report";
-export const getValidationPrompt = (jsonData: any): string => {
-  const jsonString = JSON.stringify(jsonData, null, 2);
-  return `
-    You are a clinical report assistant for Voither HealthOS. Your task is to validate and enrich a JSON object representing a clinical narrative report.
-    Analyze the following JSON data:
-    \`\`\`json
-    ${jsonString}
-    \`\`\`
-    Follow these instructions precisely:
-    1.  **Validate Schema**: Ensure the JSON conforms to the NarrativeReportData structure. The root must have \`metadata\`, \`reportTitle\`, \`keyQuote\`, and \`sections\`.
-    2.  **Enrich Metadata**: If any fields in the \`metadata\` object are missing or empty (e.g., \`total_turnos\`, \`total_palavras\`), provide realistic placeholder values. For dates, use the current date if missing.
-    3.  **Structure Content**: The \`sections\` array contains the main content. Each section should have a title, an optional intro, and subsections. Each subsection must have a title and an array of content blocks (\`blocks\`).
-    4.  **Normalize Content Blocks**: Ensure all content blocks are valid. A block must have a \`type\` ('paragraph', 'quote', 'list') and \`content\`.
-        - For paragraphs and quotes, \`content\` must be a string.
-        - For lists, \`content\` must be an array of strings.
-    5.  **Improve Clinical Tone**: Review all paragraph content. Subtly rephrase sentences to have a more formal, objective, and clinical tone suitable for a psychiatric report. Do not change the core meaning.
-    6.  **Generate Missing Content**: If the \`sections\` array is empty or incomplete, generate plausible sections, subsections, and content blocks based on the \`metadata.contexto\` and \`reportTitle\`. A typical report includes sections like "História da Moléstia Atual", "Exame Psíquico", and "Hipótese Diagnóstica".
-    7.  **Output**: Your final output must be ONLY the complete, validated, and enriched JSON object. Do not include any explanatory text, markdown formatting, or anything else outside of the JSON structure. The output must be parsable by \`JSON.parse()\`.
-    Return the final JSON object now.
-  `;
-};
+export const getASLprompt = (transcription: string, patientId: string): string => `
+Você é um assistente de análise linguística clínica.
+Analise a seguinte transcrição para o paciente ${patientId}:
+---
+${transcription}
+---
+Sua tarefa é identificar os elementos semânticos e linguísticos chave.
+Responda APENAS com um objeto JSON válido, sem nenhum texto adicional ou markdown.
+O JSON deve ter a seguinte estrutura:
+{
+  "semantic_elements": [
+    {
+      "theme": "string (o tema principal discutido, ex: 'Relação com a família')",
+      "examples": ["string (uma ou mais citações diretas da transcrição que exemplificam o tema)"],
+      "insights": "string (uma breve análise do significado clínico do tema)"
+    }
+  ],
+  "summary": "string (um resumo conciso dos principais pontos linguísticos e semânticos)"
+}
+`;
+export const getVDLPprompt = (transcription: string, patientId: string): string => `
+Você é um especialista em psicologia e linguística.
+Analise a seguinte transcrição para o paciente ${patientId}:
+---
+${transcription}
+---
+Sua tarefa é mapear a linguagem do paciente para um vocabulário descritivo de linguagem psicológica.
+Responda APENAS com um objeto JSON válido, sem nenhum texto adicional ou markdown.
+O JSON deve ter a seguinte estrutura:
+{
+  "psychological_descriptors": [
+    {
+      "descriptor": "string (um termo psicológico descritivo, ex: 'Cognição Ruminativa')",
+      "evidence": ["string (citações da transcrição que suportam o descritor)"],
+      "explanation": "string (uma explicação de como a evidência se conecta ao descritor)"
+    }
+  ],
+  "dominant_patterns": ["string (liste os padrões de linguagem psicológica mais dominantes)"]
+}
+`;
+export const getGEMprompt = (transcription: string, patientId: string): string => `
+Você é um analista de emoções e IA.
+Analise a seguinte transcrição para o paciente ${patientId}:
+---
+${transcription}
+---
+Sua tarefa é avaliar a granularidade emocional expressa na transcrição.
+Responda APENAS com um objeto JSON válido, sem nenhum texto adicional ou markdown.
+O JSON deve ter a seguinte estrutura:
+{
+  "emotional_granularity_score": "number (uma pontuação de 1 a 10, onde 1 é baixa granularidade e 10 é alta)",
+  "identified_emotions": [
+    {
+      "emotion": "string (a emoção específica identificada, ex: 'Ansiedade', 'Frustração')",
+      "intensity": "string ('Baixa', 'Média', 'Alta')",
+      "expressions": ["string (exemplos de como a emoção foi expressa)"]
+    }
+  ],
+  "analysis": "string (uma análise sobre a complexidade e diferenciação emocional do paciente)"
+}
+`;
+export const getNarrativeprompt = (transcription: string, patientId: string): string => `
+Você é um roteirista clínico e assistente de IA.
+Analise a seguinte transcrição para o paciente ${patientId}:
+---
+${transcription}
+---
+Sua tarefa é estruturar a transcrição em um formato de relatório narrativo.
+Responda APENAS com um objeto JSON válido, sem nenhum texto adicional ou markdown.
+O JSON deve ter a estrutura de um objeto NarrativeReportData, contendo 'metadata', 'reportTitle', 'keyQuote', e 'sections'.
+{
+  "metadata": { "paciente_id": "${patientId}", "contexto": "Análise de Transcrição", "data_analise": "${new Date().toISOString().split('T')[0]}", "medico_responsavel": "A ser preenchido", "crm": "A ser preenchido" },
+  "reportTitle": "string (um título criativo e clínico para o relatório)",
+  "keyQuote": "string (a citação mais impactante da transcrição)",
+  "sections": [
+    {
+      "title": "string (título da seção, ex: 'História da Moléstia Atual')",
+      "intro": [],
+      "subsections": [
+        {
+          "title": "string (título da subseção)",
+          "blocks": [
+            { "type": "paragraph", "content": "string (parágrafo narrativo baseado na transcrição)" },
+            { "type": "quote", "content": "string (citação relevante)" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+`;
+export const getSOAPprompt = (transcription: string, patientId: string): string => `
+Você é um médico assistente de IA.
+Analise a seguinte transcrição para o paciente ${patientId}:
+---
+${transcription}
+---
+Sua tarefa é gerar notas clínicas estruturadas no formato SOAP.
+Responda APENAS com um objeto JSON válido, sem nenhum texto adicional ou markdown.
+O JSON deve ter a seguinte estrutura:
+{
+  "subjective": "string (queixas do paciente, história, sentimentos, conforme relatado por ele)",
+  "objective": "string (observações objetivas do terapeuta sobre o comportamento, afeto, fala do paciente)",
+  "assessment": "string (avaliação e diagnóstico diferencial com base nas informações subjetivas e objetivas)",
+  "plan": "string (plano de tratamento, próximos passos, intervenções recomendadas)"
+}
+`;

@@ -50,17 +50,26 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const controller = getAppController(c.env);
         const data = await controller.getReportData(sessionId);
         if (data === null) return c.json({ success: false, error: 'Report data not found' }, { status: 404 });
-        return c.json({ success: true, data });
+        try {
+            // Attempt to parse to ensure it's valid JSON before sending
+            JSON.parse(data);
+            return c.json({ success: true, data: JSON.parse(data) });
+        } catch (e) {
+            // If it's not JSON, it might be legacy string data.
+            // For robustness, we can wrap it or handle it, but for now, we'll return an error for consistency.
+            return c.json({ success: false, error: 'Stored data is not valid JSON.' }, { status: 500 });
+        }
     });
     // Update report data for a session
     app.put('/api/sessions/:sessionId/data', async (c) => {
         const sessionId = c.req.param('sessionId');
         const { data } = await c.req.json();
-        if (typeof data !== 'string' || data.length > 1024 * 1024) { // 1MB limit
+        const dataString = JSON.stringify(data);
+        if (dataString.length > 1024 * 1024) { // 1MB limit
             return c.json({ success: false, error: 'Invalid or oversized data payload' }, { status: 400 });
         }
         const controller = getAppController(c.env);
-        await controller.setReportData(sessionId, data);
+        await controller.setReportData(sessionId, dataString);
         return c.json({ success: true });
     });
 }

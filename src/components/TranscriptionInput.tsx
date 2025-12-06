@@ -25,7 +25,7 @@ interface TranscriptionInputProps {
   isProcessing: boolean;
 }
 const TranscriptionInput: React.FC<TranscriptionInputProps> = ({ initialData, onStartAnalysis, onInputsChange, isProcessing }) => {
-  const { register, handleSubmit, control, watch, formState: { errors, isValid }, reset } = useForm<TranscriptionInputs>({
+  const { register, handleSubmit, control, watch, formState: { errors, isValid }, setValue } = useForm<TranscriptionInputs>({
     resolver: zodResolver(formSchema),
     mode: 'onChange',
     defaultValues: initialData,
@@ -33,9 +33,6 @@ const TranscriptionInput: React.FC<TranscriptionInputProps> = ({ initialData, on
   const transcription = watch('transcription', '');
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
-  useEffect(() => {
-    reset(initialData);
-  }, [initialData, reset]);
   useEffect(() => {
     if (transcription) {
       setWordCount(transcription.split(/\s+/).filter(Boolean).length);
@@ -51,8 +48,10 @@ const TranscriptionInput: React.FC<TranscriptionInputProps> = ({ initialData, on
     });
     return () => subscription.unsubscribe();
   }, [watch, onInputsChange]);
+  // API Key handling is simplified to be stored with session data for this phase.
+  // A dedicated secure endpoint would be a next step.
   return (
-    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}>
+    <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
       <form onSubmit={handleSubmit(onStartAnalysis)}>
         <Card>
           <CardHeader>
@@ -60,7 +59,7 @@ const TranscriptionInput: React.FC<TranscriptionInputProps> = ({ initialData, on
             <CardDescription>Preencha as informações da consulta e a transcrição.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="patientId">ID do Paciente</Label>
                 <Input id="patientId" {...register('patientId')} />

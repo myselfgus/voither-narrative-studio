@@ -47,6 +47,8 @@ const reportSchema = z.object({
   keyQuote: z.string().min(1, "Citação chave é obrigatória"),
   sections: z.array(sectionSchema),
 });
+type FormValues = z.infer<typeof reportSchema>;
+
 interface ReportEditorProps {
   reportData: NarrativeReportData;
   onUpdate: (data: NarrativeReportData) => void;
@@ -67,15 +69,202 @@ const SortableItem = ({ id, children }: { id: string, children: React.ReactNode 
     </div>
   );
 };
+const SubsectionBlocksEditor: React.FC<{
+  sectionIndex: number;
+  subIndex: number;
+  control: any;
+  register: any;
+  errors: any;
+  subField: any;
+}> = ({ sectionIndex, subIndex, control, register, errors, subField }) => {
+  const { fields: blockFields, append: appendBlock, remove: removeBlock } = useFieldArray({
+    control,
+    name: `sections.${sectionIndex}.subsections.${subIndex}.blocks`,
+  });
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between mb-2">
+        <Label>Blocos</Label>
+        <Button type="button" variant="ghost" onClick={() => appendBlock({ type: 'paragraph', content: '' })} className="h-8">
+          <PlusCircle className="h-4 w-4 mr-2" /> Adicionar Bloco
+        </Button>
+      </div>
+
+      {blockFields.map((blockField, bIdx) => (
+        <div key={blockField.id} className="mb-3 p-3 border rounded">
+          <div className="flex gap-2">
+            <select
+              className="border rounded px-2 py-1"
+              {...register(`sections.${sectionIndex}.subsections.${subIndex}.blocks.${bIdx}.type` as const)}
+              defaultValue={(blockField as any).type || 'paragraph'}
+            >
+              <option value="paragraph">Parágrafo</option>
+              <option value="quote">Citação</option>
+              <option value="list">Lista</option>
+            </select>
+
+            <div className="ml-auto">
+              <Button type="button" variant="ghost" onClick={() => removeBlock(bIdx)} className="h-8">
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-2">
+            <Textarea
+              {...register(`sections.${sectionIndex}.subsections.${subIndex}.blocks.${bIdx}.content` as const)}
+              defaultValue={Array.isArray((blockField as any).content) ? (blockField as any).content.join('\n') : (blockField as any).content || ''}
+              rows={3}
+            />
+            {errors.sections?.[sectionIndex]?.subsections?.[subIndex]?.blocks?.[bIdx]?.content && (
+              <p className="text-red-500 text-sm mt-1">{errors.sections[sectionIndex].subsections[subIndex].blocks[bIdx].content.message}</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+ /**
+ * SectionEditor and SubsectionEditor:
+ * - SectionEditor manages intro blocks and subsections field arrays for a given section index.
+ * - SubsectionEditor manages blocks field array for a given subsection.
+ *
+ * These small components keep useFieldArray hooks stable by being separate components
+ * (hook calls remain consistent per component instance).
+ */
+const SectionSubsectionBlockEditor: React.FC<{
+  sectionIndex: number;
+  control: any;
+  register: any;
+  errors: any;
+  watchedSection?: any;
+}> = ({ sectionIndex, control, register, errors, watchedSection }) => {
+  const { fields: introFields, append: appendIntro, remove: removeIntro } = useFieldArray({
+    control,
+    name: `sections.${sectionIndex}.intro`,
+  });
+
+  const { fields: subsectionFields, append: appendSubsection, remove: removeSubsection } = useFieldArray({
+    control,
+    name: `sections.${sectionIndex}.subsections`,
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Intro Blocks */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <Label>Blocos de Introdução</Label>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => appendIntro({ type: 'paragraph', content: '' })}
+            className="h-8"
+          >
+            <PlusCircle className="h-4 w-4 mr-2" /> Adicionar Bloco
+          </Button>
+        </div>
+
+        {introFields.map((introField, i) => (
+          <div key={introField.id} className="mb-3 p-3 border rounded">
+            <div className="flex gap-2">
+              <select
+                className="border rounded px-2 py-1"
+                {...register(`sections.${sectionIndex}.intro.${i}.type` as const)}
+                defaultValue={(introField as any).type || 'paragraph'}
+              >
+                <option value="paragraph">Parágrafo</option>
+                <option value="quote">Citação</option>
+                <option value="list">Lista</option>
+              </select>
+
+              <div className="ml-auto">
+                <Button type="button" variant="ghost" onClick={() => removeIntro(i)} className="h-8">
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-2">
+              <Textarea
+                {...register(`sections.${sectionIndex}.intro.${i}.content` as const)}
+                defaultValue={Array.isArray((introField as any).content) ? (introField as any).content.join('\n') : (introField as any).content || ''}
+                rows={3}
+              />
+              {errors.sections?.[sectionIndex]?.intro?.[i]?.content && (
+                <p className="text-red-500 text-sm mt-1">{errors.sections[sectionIndex].intro[i].content.message}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Subsections */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <Label>Subseções</Label>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => appendSubsection({ title: 'Nova Subseção', blocks: [] })}
+            className="h-8"
+          >
+            <PlusCircle className="h-4 w-4 mr-2" /> Adicionar Subseção
+          </Button>
+        </div>
+
+        {subsectionFields.map((subField, subIndex) => (
+          <div key={subField.id} className="mb-4 p-3 border rounded">
+            <div className="flex items-start gap-3">
+              <div className="flex-1">
+                <Label htmlFor={`sections.${sectionIndex}.subsections.${subIndex}.title`}>Título da Subseção</Label>
+                <Input
+                  id={`sections.${sectionIndex}.subsections.${subIndex}.title`}
+                  {...register(`sections.${sectionIndex}.subsections.${subIndex}.title` as const)}
+                  defaultValue={(subField as any).title || ''}
+                />
+                {errors.sections?.[sectionIndex]?.subsections?.[subIndex]?.title && (
+                  <p className="text-red-500 text-sm mt-1">{errors.sections[sectionIndex].subsections[subIndex].title.message}</p>
+                )}
+              </div>
+
+              <div>
+                <Button type="button" variant="ghost" onClick={() => removeSubsection(subIndex)} className="h-8">
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Blocks FieldArray inside Subsection */}
+            <SubsectionBlocksEditor
+              sectionIndex={sectionIndex}
+              subIndex={subIndex}
+              control={control}
+              register={register}
+              errors={errors}
+              subField={subField}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+
+
 const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSave }) => {
-  const { control, register, handleSubmit, watch, formState: { errors } } = useForm<NarrativeReportData>({
+  const { control, register, handleSubmit, watch, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(reportSchema),
-    defaultValues: reportData,
+    defaultValues: reportData as unknown as FormValues,
   });
   const { fields: sectionFields, append: appendSection, remove: removeSection, move: moveSection } = useFieldArray({ control, name: "sections" });
   const watchedFields = watch();
   useDebounce(() => {
-    onUpdate(watchedFields);
+    onUpdate(watchedFields as unknown as NarrativeReportData);
   }, 500, [watchedFields, onUpdate]);
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -89,8 +278,8 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
       moveFn(oldIndex, newIndex);
     }
   };
-  const onSubmit = (data: NarrativeReportData) => {
-    onUpdate(data);
+  const onSubmit = (data: FormValues) => {
+    onUpdate(data as unknown as NarrativeReportData);
     onSave();
   };
   return (
@@ -191,7 +380,13 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ reportData, onUpdate, onSav
                             <Input id={`sections.${index}.title`} {...register(`sections.${index}.title`)} />
                             {errors.sections?.[index]?.title && <p className="text-red-500 text-sm mt-1">{errors.sections[index]?.title?.message}</p>}
                           </div>
-                          {/* TODO: Add field arrays for intro and subsections */}
+                          <SectionSubsectionBlockEditor
+                            sectionIndex={index}
+                            control={control}
+                            register={register}
+                            errors={errors}
+                            watchedSection={watchedFields.sections?.[index]}
+                          />
                         </AccordionContent>
                       </AccordionItem>
                     </motion.div>
