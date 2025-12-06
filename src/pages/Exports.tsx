@@ -9,9 +9,9 @@ import { chatService } from '@/lib/chat';
 import type { SessionInfo } from '../../worker/types';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import { exportToPdf, generateCoverThumbnail } from '@/lib/pdf';
+import { generateCoverThumbnail } from '@/lib/pdf';
 import { compileFromStages } from '@/lib/reportRenderer';
-import ReportPreview from '@/components/ReportPreview';
+import { generateReportHtml } from '@/lib/reportHtml';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
@@ -19,11 +19,15 @@ const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
   useEffect(() => {
     let isMounted = true;
     const generateThumbnail = async () => {
-      const res = await chatService.loadReportFromSession(session.id);
-      if (isMounted && res.success && res.data) {
-        const reportData = compileFromStages(res.data.stages, res.data.inputs);
-        const url = await generateCoverThumbnail(reportData);
-        setThumbnailUrl(url);
+      try {
+        const res = await chatService.loadReportFromSession(session.id);
+        if (isMounted && res.success && res.data) {
+          const reportData = compileFromStages(res.data.stages, res.data.inputs);
+          const url = await generateCoverThumbnail(reportData);
+          setThumbnailUrl(url);
+        }
+      } catch (error) {
+        console.error("Failed to generate thumbnail for session:", session.id, error);
       }
     };
     generateThumbnail();
@@ -41,7 +45,6 @@ const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
 };
 const Exports: React.FC = () => {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const reportRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const loadSessions = useCallback(async () => {
     const response = await chatService.listSessions();
     if (response.success && response.data) {
@@ -54,54 +57,63 @@ const Exports: React.FC = () => {
     loadSessions();
   }, [loadSessions]);
   const handleDownloadPdf = async (sessionId: string) => {
-    const ref = reportRefs.current[sessionId];
-    if (!ref) {
-      toast.error("Preview element not found. Cannot generate PDF.");
-      return;
-    }
-    const res = await chatService.loadReportFromSession(sessionId);
-    if (res.success && res.data) {
-      const reportData = compileFromStages(res.data.stages, res.data.inputs);
-      exportToPdf(ref, `voither-report-${reportData.metadata.paciente_id}`);
-    } else {
-      toast.error("Failed to load report data for PDF export.");
+    toast.info("Generating PDF...");
+    try {
+      const res = await chatService.loadReportFromSession(sessionId);
+      if (res.success && res.data) {
+        const reportData = compileFromStages(res.data.stages, res.data.inputs);
+        const htmlString = generateReportHtml(reportData);
+        const { exportToPdf } = await import('@/lib/pdf');
+        exportToPdf(htmlString, `voither-report-${reportData.metadata.paciente_id}`);
+      } else {
+        throw new Error(res.error || "Failed to load report data.");
+      }
+    } catch (error: any) {
+      toast.error("Failed to export PDF.", { description: error.message });
     }
   };
   const handleDownloadJsons = async (sessionId: string) => {
-    const res = await chatService.loadReportFromSession(sessionId);
-    if (res.success && res.data && res.data.stages) {
-      res.data.stages.forEach((stage: any) => {
-        if (stage.status === 'complete') {
-          try {
-            const content = JSON.stringify(JSON.parse(stage.output), null, 2);
-            const blob = new Blob([content], { type: 'application/json' });
-            saveAs(blob, `voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`);
-          } catch (e) {
-            console.error(`Could not parse JSON for stage ${stage.name}`);
+    try {
+      const res = await chatService.loadReportFromSession(sessionId);
+      if (res.success && res.data && res.data.stages) {
+        res.data.stages.forEach((stage: any) => {
+          if (stage.status === 'complete') {
+            try {
+              const content = JSON.stringify(JSON.parse(stage.output), null, 2);
+              const blob = new Blob([content], { type: 'application/json' });
+              saveAs(blob, `voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`);
+            } catch (e) {
+              console.error(`Could not parse JSON for stage ${stage.name}`);
+            }
           }
-        }
-      });
-      toast.success("JSON files downloaded.");
-    } else {
-      toast.error("Failed to load data for JSON export.");
+        });
+        toast.success("JSON files downloaded.");
+      } else {
+        throw new Error(res.error || "Failed to load data for JSON export.");
+      }
+    } catch (error: any) {
+      toast.error("Failed to download JSONs.", { description: error.message });
     }
   };
   const handleExportAll = async () => {
     toast.info("Preparing all exports for download...");
     const zip = new JSZip();
     for (const session of sessions) {
-      const res = await chatService.loadReportFromSession(session.id);
-      if (res.success && res.data) {
-        const sessionFolder = zip.folder(session.title.replace(/[^a-z0-9]/gi, '_'));
-        // Add JSONs
-        res.data.stages.forEach((stage: any) => {
-          if (stage.status === 'complete') {
-            try {
-              const content = JSON.stringify(JSON.parse(stage.output), null, 2);
-              sessionFolder?.file(`voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`, content);
-            } catch (e) { /* ignore */ }
-          }
-        });
+      try {
+        const res = await chatService.loadReportFromSession(session.id);
+        if (res.success && res.data) {
+          const sessionFolder = zip.folder(session.title.replace(/[^a-z0-9]/gi, '_'));
+          res.data.stages.forEach((stage: any) => {
+            if (stage.status === 'complete') {
+              try {
+                const content = JSON.stringify(JSON.parse(stage.output), null, 2);
+                sessionFolder?.file(`voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`, content);
+              } catch (e) { /* ignore */ }
+            }
+          });
+        }
+      } catch (error) {
+        console.error(`Failed to process session ${session.id} for zip export.`, error);
       }
     }
     zip.generateAsync({ type: 'blob' }).then(content => {
@@ -119,14 +131,14 @@ const Exports: React.FC = () => {
       </div>
       {sessions.length > 0 ? (
         <motion.div
-          className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           initial="hidden"
           animate="visible"
           variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
         >
           {sessions.map(session => (
             <motion.div key={session.id} variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}>
-              <Card className="h-full flex flex-col">
+              <Card className="h-full flex flex-col" role="listitem" aria-label={`Export session ${session.title}`}>
                 <CardHeader>
                   <CardTitle className="truncate">{session.title}</CardTitle>
                   <CardDescription>
@@ -157,17 +169,6 @@ const Exports: React.FC = () => {
           </Button>
         </div>
       )}
-      <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
-        {sessions.map(session => {
-            const res = { data: chatService.loadReportFromSession(session.id) };
-            if (!res.data) return null;
-            return (
-                <div key={session.id} ref={el => (reportRefs.current[session.id] = el)}>
-                    {/* This is a hack to pre-render for PDF export. A better solution would be needed for production. */}
-                </div>
-            )
-        })}
-      </div>
       <Toaster richColors />
     </AppLayout>
   );

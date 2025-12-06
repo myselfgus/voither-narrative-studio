@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useDebounce } from 'react-use';
 import { Save, FileDown, Edit, XCircle, Bot, FileText } from 'lucide-react';
 import { Toaster, toast } from '@/components/ui/sonner';
 import TranscriptionInput, { TranscriptionInputs } from '@/components/TranscriptionInput';
@@ -8,7 +9,6 @@ import FinalReportPreview from '@/components/FinalReportPreview';
 import ReportEditor from '@/components/ReportEditor';
 import { chatService } from '@/lib/chat';
 import { getASLprompt, getVDLPprompt, getGEMprompt, getNarrativeprompt, getSOAPprompt } from '@/lib/llmPrompts';
-import { exportToPdf } from '@/lib/pdf';
 import { NarrativeReportData } from '@/types/report';
 import { compileFromStages } from '@/lib/reportRenderer';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -101,6 +101,11 @@ const ReportBuilder: React.FC = () => {
       }
     }
   }, [sessionId, inputs, stages]);
+  useDebounce(() => {
+    if (sessionId && (stages.some(s => s.status === 'complete') || Object.keys(inputs).length > 0)) {
+      saveSession();
+    }
+  }, 10000, [stages, inputs, saveSession]);
   const handleStartAnalysis = async (data: TranscriptionInputs) => {
     setIsProcessing(true);
     setFinalReport(null);
@@ -115,6 +120,7 @@ const ReportBuilder: React.FC = () => {
         currentSessionId = newId;
         navigate(`/builder?session=${newId}`, { replace: true });
     }
+    await chatService.saveApiKey(currentSessionId!, data.apiKey);
     setStages(initialStages.map(s => ({...s, output: ''})));
     toast.info("Starting analysis...", { description: "AI usage is subject to request limits." });
     try {
@@ -128,7 +134,7 @@ const ReportBuilder: React.FC = () => {
         const prompt = promptFn(data.transcription, data.patientId, prevOutput, data);
         const { success, output } = await chatService.sendMessage(prompt, 'voither', (chunk) => {
           setStages(prev => prev.map(s => s.name === stageName ? { ...s, output: (s.output || '') + chunk } : s));
-        }, { signal: abortControllerRef.current.signal });
+        }, { signal: abortControllerRef.current.signal, apiKey: data.apiKey });
         if (abortControllerRef.current.signal.aborted) {
           toast.info("Analysis aborted.");
           setStages(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'pending', progress: 0 } : s));
@@ -145,14 +151,12 @@ const ReportBuilder: React.FC = () => {
           }
         } else {
           setStages(prev => prev.map(s => s.name === stageName ? { ...s, status: 'error', progress: 100, output: "Analysis failed." } : s));
-          toast.error(`Error in stage ${stageName}.`);
+          toast.error(`Error in stage ${stageName}.`, { description: "Check console for details or try again." });
           break;
         }
       }
       if (!abortControllerRef.current.signal.aborted) {
-        toast.success("Analysis complete!", {
-          description: "The final report has been generated.",
-        });
+        toast.success("Analysis complete!", { description: "The final report has been generated." });
         await saveSession();
       }
     } catch (error) {
@@ -168,9 +172,10 @@ const ReportBuilder: React.FC = () => {
       abortControllerRef.current.abort();
     }
   };
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (reportRef.current && inputs.patientId) {
       toast.info("Generating PDF...");
+      const { exportToPdf } = await import('@/lib/pdf');
       exportToPdf(reportRef.current, `voither-report-${inputs.patientId}`);
     } else {
       toast.error("Could not generate PDF. Missing data or preview not ready.");
@@ -204,6 +209,7 @@ const ReportBuilder: React.FC = () => {
                   onStartAnalysis={handleStartAnalysis}
                   onInputsChange={handleInputsChange}
                   isProcessing={isProcessing}
+                  sessionId={sessionId}
                 />
               </div>
             </ScrollArea>

@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { FileText, BrainCircuit, Gem, BookOpen, Stethoscope, Download, Loader2, AlertTriangle } from 'lucide-react';
 export interface PipelineStage {
   name: 'ASL' | 'VDLP' | 'GEM' | 'Narrative' | 'SOAP';
@@ -24,16 +25,14 @@ interface PipelineStagesProps {
   stages: PipelineStage[];
   patientId?: string;
 }
-const PipelineStages: React.FC<PipelineStagesProps> = ({ stages, patientId }) => {
+const PipelineStagesComponent: React.FC<PipelineStagesProps> = ({ stages, patientId }) => {
   const handleDownloadJson = (stage: PipelineStage) => {
     let content: string;
     let extension: string;
     try {
-      // Prettify if it's a valid JSON string
       content = JSON.stringify(JSON.parse(stage.output), null, 2);
       extension = 'json';
     } catch (e) {
-      // Fallback for non-JSON content
       content = stage.output;
       extension = 'txt';
     }
@@ -105,20 +104,25 @@ const PipelineStages: React.FC<PipelineStagesProps> = ({ stages, patientId }) =>
                 <Progress value={stage.progress} className="w-full mt-4" />
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-40 w-full rounded-md border">
-                  <Textarea
-                    readOnly
-                    value={stage.output}
-                    className="h-full w-full p-2 font-mono text-xs border-none resize-none focus-visible:ring-0"
-                    placeholder={stage.status === 'pending' ? 'Aguardando início...' : 'Aguardando resultado...'}
-                  />
-                </ScrollArea>
+                {stage.status === 'pending' || stage.status === 'running' ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : (
+                  <ScrollArea className="h-40 w-full rounded-md border">
+                    <Textarea
+                      readOnly
+                      value={stage.output}
+                      className="h-full w-full p-2 font-mono text-xs border-none resize-none focus-visible:ring-0"
+                      placeholder={stage.status === 'pending' ? 'Aguardando início...' : 'Aguardando resultado...'}
+                    />
+                  </ScrollArea>
+                )}
                 <div className="flex justify-end gap-2 mt-2">
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={stage.status !== 'complete'}
                     onClick={() => handleDownloadJson(stage)}
+                    onTouchStart={(e) => e.preventDefault()}
                   >
                     <Download className="mr-2 h-4 w-4" />
                     Download
@@ -132,4 +136,4 @@ const PipelineStages: React.FC<PipelineStagesProps> = ({ stages, patientId }) =>
     </motion.div>
   );
 };
-export default PipelineStages;
+export default React.memo(PipelineStagesComponent);
