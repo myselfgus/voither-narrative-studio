@@ -50,6 +50,12 @@ export class AppController extends DurableObject<Env> {
       await this.persistSessions();
       await this.persistReports();
       await this.persistApiKeys();
+      // Also delete from D1
+      try {
+        await this.env.VOITHER_D1.prepare('DELETE FROM Sessions WHERE session_id = ?1').bind(sessionId).run();
+      } catch (e) {
+        console.error('Failed to delete session from D1:', e);
+      }
     }
     return deleted;
   }
@@ -82,21 +88,63 @@ export class AppController extends DurableObject<Env> {
   async setReportData(sessionId: string, data: string): Promise<void> {
     await this.ensureLoaded();
     if (!this.sessions.has(sessionId)) {
-      await this.addSession(sessionId, 'Novo Relat��rio');
+      await this.addSession(sessionId, 'Novo Relatório');
     }
     this.reports.set(sessionId, data);
     await this.persistReports();
+    // D1 Sync Logic
+    try {
+      const reportData = JSON.parse(data);
+      const inputs = reportData.inputs || {};
+      const patientId = inputs.patientId;
+      const crm = inputs.crm;
+      if (patientId && crm) {
+        // 1. Upsert Patient
+        const patientUUID = crypto.randomUUID();
+        const patientResult = await this.env.VOITHER_D1.prepare(
+          `INSERT INTO Patients (id, patient_id, name, context, crm, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, unixepoch())
+           ON CONFLICT(patient_id, crm) DO UPDATE SET name=excluded.name, context=excluded.context, updated_at=unixepoch() RETURNING id`
+        ).bind(patientUUID, patientId, inputs.professionalName || 'N/A', inputs.context || '', crm).first<{ id: string }>();
+        const dbPatientId = patientResult?.id;
+        if (dbPatientId) {
+          // 2. Upsert Session
+          const sessionUUID = crypto.randomUUID();
+          await this.env.VOITHER_D1.prepare(
+            `INSERT INTO Sessions (id, patient_id, session_id, title, stages, report, last_active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, unixepoch())
+             ON CONFLICT(session_id) DO UPDATE SET title=excluded.title, stages=excluded.stages, report=excluded.report, last_active=unixepoch()`
+          ).bind(sessionUUID, dbPatientId, sessionId, `Relatório para ${patientId}`, JSON.stringify(reportData.stages), data).run();
+        }
+      }
+    } catch (e) {
+      console.error('D1 Sync failed:', e);
+    }
   }
   async getReportData(sessionId: string): Promise<string | null> {
     await this.ensureLoaded();
-    return this.reports.get(sessionId) || null;
+    let report = this.reports.get(sessionId);
+    if (report) return report;
+    // Fallback to D1
+    try {
+      const { results } = await this.env.VOITHER_D1.prepare('SELECT report FROM Sessions WHERE session_id = ?1').bind(sessionId).run<{ report: string }>();
+      if (results && results.length > 0) {
+        report = results[0].report;
+        if (report) {
+          this.reports.set(sessionId, report);
+          await this.persistReports();
+          return report;
+        }
+      }
+    } catch (e) {
+      console.error('D1 fallback failed:', e);
+    }
+    return null;
   }
   async setApiKey(sessionId: string, key: string): Promise<{ success: boolean; message?: string }> {
     await this.ensureLoaded();
     if (typeof key !== 'string' || !key.startsWith('sk-') || key.length < 20) {
       return { success: false, message: 'Invalid API key format.' };
     }
-    this.apiKeys.set(sessionId, key); // In a real app, encrypt this: await this.env.crypto.subtle.encrypt(...)
+    this.apiKeys.set(sessionId, key);
     await this.persistApiKeys();
     return { success: true };
   }
@@ -107,6 +155,6 @@ export class AppController extends DurableObject<Env> {
     if (masked) {
       return `${key.substring(0, 5)}...${key.substring(key.length - 4)}`;
     }
-    return key; // For internal use by the agent
+    return key;
   }
 }

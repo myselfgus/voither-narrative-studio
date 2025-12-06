@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Download, FileJson, FileText, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,9 +22,11 @@ const SessionThumbnail: React.FC<{ session: SessionInfo }> = ({ session }) => {
       try {
         const res = await chatService.loadReportFromSession(session.id);
         if (isMounted && res.success && res.data) {
-          const reportData = compileFromStages(res.data.stages, res.data.inputs);
-          const url = await generateCoverThumbnail(reportData);
-          setThumbnailUrl(url);
+          const reportData = res.data.report || compileFromStages(res.data.stages, res.data.inputs);
+          if (reportData) {
+            const url = await generateCoverThumbnail(reportData);
+            setThumbnailUrl(url);
+          }
         }
       } catch (error) {
         console.error("Failed to generate thumbnail for session:", session.id, error);
@@ -61,10 +63,14 @@ const Exports: React.FC = () => {
     try {
       const res = await chatService.loadReportFromSession(sessionId);
       if (res.success && res.data) {
-        const reportData = compileFromStages(res.data.stages, res.data.inputs);
-        const htmlString = generateReportHtml(reportData);
-        const { exportToPdf } = await import('@/lib/pdf');
-        exportToPdf(htmlString, `voither-report-${reportData.metadata.paciente_id}`);
+        const reportData = res.data.report || compileFromStages(res.data.stages, res.data.inputs);
+        if (reportData) {
+          const htmlString = generateReportHtml(reportData);
+          const { exportToPdf } = await import('@/lib/pdf');
+          exportToPdf(htmlString, `voither-report-${reportData.metadata.paciente_id}`);
+        } else {
+          throw new Error("Report data is missing or invalid.");
+        }
       } else {
         throw new Error(res.error || "Failed to load report data.");
       }
@@ -103,14 +109,16 @@ const Exports: React.FC = () => {
         const res = await chatService.loadReportFromSession(session.id);
         if (res.success && res.data) {
           const sessionFolder = zip.folder(session.title.replace(/[^a-z0-9]/gi, '_'));
-          res.data.stages.forEach((stage: any) => {
-            if (stage.status === 'complete') {
-              try {
-                const content = JSON.stringify(JSON.parse(stage.output), null, 2);
-                sessionFolder?.file(`voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`, content);
-              } catch (e) { /* ignore */ }
-            }
-          });
+          if (res.data.stages) {
+            res.data.stages.forEach((stage: any) => {
+              if (stage.status === 'complete') {
+                try {
+                  const content = JSON.stringify(JSON.parse(stage.output), null, 2);
+                  sessionFolder?.file(`voither-${stage.name.toLowerCase()}-${res.data.inputs.patientId}.json`, content);
+                } catch (e) { /* ignore */ }
+              }
+            });
+          }
         }
       } catch (error) {
         console.error(`Failed to process session ${session.id} for zip export.`, error);

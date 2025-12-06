@@ -22,6 +22,7 @@ export function coreRoutes(app: Hono<{ Bindings: Env }>) {
     });
 }
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
+    // Session Management (DO-based for active sessions)
     app.get('/api/sessions', async (c) => {
         const controller = getAppController(c.env);
         const sessions = await controller.listSessions();
@@ -65,6 +66,36 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         const controller = getAppController(c.env);
         await controller.setReportData(sessionId, dataString);
         return c.json({ success: true });
+    });
+    // Patient Management (D1-based)
+    app.get('/api/patients', async (c) => {
+        try {
+            const { results } = await c.env.VOITHER_D1.prepare(
+                `SELECT id, patient_id, name, context, crm, updated_at,
+                 (SELECT COUNT(*) FROM Sessions WHERE Sessions.patient_id = Patients.id) as session_count
+                 FROM Patients ORDER BY updated_at DESC`
+            ).run();
+            return c.json({ success: true, data: results });
+        } catch (e: any) {
+            console.error('Failed to fetch patients:', e);
+            return c.json({ success: false, error: 'Database query failed' }, { status: 500 });
+        }
+    });
+    app.get('/api/patients/:id', async (c) => {
+        const patientId = c.req.param('id');
+        try {
+            const patient = await c.env.VOITHER_D1.prepare('SELECT * FROM Patients WHERE id = ?1').bind(patientId).first();
+            if (!patient) {
+                return c.json({ success: false, error: 'Patient not found' }, { status: 404 });
+            }
+            const { results: sessions } = await c.env.VOITHER_D1.prepare(
+                'SELECT session_id, title, last_active, report FROM Sessions WHERE patient_id = ?1 ORDER BY last_active DESC'
+            ).bind(patientId).run();
+            return c.json({ success: true, data: { patient, sessions } });
+        } catch (e: any) {
+            console.error(`Failed to fetch patient ${patientId}:`, e);
+            return c.json({ success: false, error: 'Database query failed' }, { status: 500 });
+        }
     });
     // API Key Management
     app.post('/api/user/apikey', async (c) => {

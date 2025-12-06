@@ -46,7 +46,7 @@ const PdfGenerator: React.FC = () => {
       toast.success("JSON validado e carregado com sucesso.");
     } else {
       toast.error("Esquema JSON inválido.", {
-        description: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; '),
+        description: result.error.format()._errors.join('; '),
       });
       setRawJson(null);
       setEnrichedReport(null);
@@ -85,7 +85,16 @@ const PdfGenerator: React.FC = () => {
       toast.error("Nenhum relatório para salvar.");
       return;
     }
-    const res = await chatService.createSession(`Relatório para ${enrichedReport.metadata.paciente_id}`, { inputs: {}, stages: [], report: enrichedReport });
+    const sessionData = {
+      inputs: {
+        patientId: enrichedReport.metadata.paciente_id,
+        crm: enrichedReport.metadata.crm,
+        professionalName: enrichedReport.metadata.medico_responsavel,
+      },
+      stages: [], // No stages in this flow
+      report: enrichedReport,
+    };
+    const res = await chatService.createSession(`Relatório para ${enrichedReport.metadata.paciente_id}`, sessionData);
     if (res.success) {
       toast.success("Sessão salva com sucesso!");
     } else {

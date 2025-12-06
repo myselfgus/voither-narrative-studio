@@ -14,6 +14,8 @@ import ReportBuilder from '@/pages/ReportBuilder';
 import SessionList from '@/pages/SessionList';
 import Exports from '@/pages/Exports';
 import PdfGenerator from '@/pages/PdfGenerator';
+import Patients from '@/pages/Patients';
+import PatientDashboard from '@/pages/PatientDashboard';
 const router = createBrowserRouter([
   {
     path: "/",
@@ -38,6 +40,16 @@ const router = createBrowserRouter([
   {
     path: "/pdf-generator",
     element: <PdfGenerator />,
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/patients",
+    element: <Patients />,
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/patients/:patientId",
+    element: <PatientDashboard />,
     errorElement: <RouteErrorBoundary />,
   },
 ]);
